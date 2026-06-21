@@ -7,23 +7,23 @@ public class PlayerController : NetworkBehaviour
 {
     private CharacterController characterController;
     public PlayerInputControls InputControls;
-    
+
     [Header("Movement")]
     [SerializeField] private float moveSpeed = 6f;
     [SerializeField] private float rotationSmoothTime = 0.1f;
-    
+
     [Header("Gravity")]
     [SerializeField] private float gravity = -9.81f;
     [SerializeField] private float groundedGravity = -2f; // 贴地小重力，防止悬空
     [SerializeField] private float jumpHeight = 1.5f;
-    
+
     // 输入
     [SerializeField] private Vector3 inputDirection;
-    
+
     // 旋转平滑
     private float rotationVelocity;
     private float currentVelocityY;
-    
+
     // 地面检测
     private bool isGrounded;
     [SerializeField] private float groundCheckRadius = 0.2f;
@@ -31,18 +31,21 @@ public class PlayerController : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
+        Debug.Log($"[OnNetworkSpawn] LocalClientId={NetworkManager.LocalClientId}, OwnerClientId={OwnerClientId}, IsServer={IsServer}, IsHost={IsHost}");
         characterController = GetComponent<CharacterController>();
 
         if (!IsOwner)
         {
             enabled = false;
+            Debug.Log("不是控制者");
             return;
         }
+
 
         // 只有 Owner 端执行以下逻辑
         InputControls = new PlayerInputControls();
         InputControls.Gameplay.Enable();
-        
+
         Transform camTarget = transform.Find("CameraTarget");
         var freeLook = FindObjectOfType<Cinemachine.CinemachineFreeLook>();
         if (freeLook != null && camTarget != null)
@@ -56,6 +59,12 @@ public class PlayerController : NetworkBehaviour
     {
         if (!IsOwner) return;
         inputDirection = InputControls.Gameplay.Move.ReadValue<Vector3>();
+        if (Time.frameCount % 60 == 0)
+            Debug.Log($"[Update][Owner={OwnerClientId}] inputDir={inputDirection}, CC.enabled={characterController.enabled}, isGrounded={characterController.isGrounded}, pos={transform.position}");
+        if (InputControls.Gameplay.Jump.triggered)  // .triggered = 按下那一帧为 true
+        {
+            Jump();
+        }
     }
 
     void FixedUpdate()
@@ -63,13 +72,15 @@ public class PlayerController : NetworkBehaviour
         if (!IsOwner) return;
         ApplyGravity();
         Move();
+        if (Time.frameCount % 60 == 0)
+            Debug.Log($"[FixedUpdate][Owner={OwnerClientId}] curVelY={currentVelocityY}, posAfter={transform.position}");
     }
 
     void ApplyGravity()
     {
         // 地面检测
         isGrounded = characterController.isGrounded;
-        
+
         if (isGrounded && currentVelocityY < 0)
         {
             currentVelocityY = groundedGravity; // 保持贴地
@@ -98,18 +109,18 @@ public class PlayerController : NetworkBehaviour
 
         // ====== 构建移动向量 ======
         Vector3 moveDelta;
-        
+
         if (targetDirection != Vector3.zero)
         {
             // 水平移动
             moveDelta = targetDirection * moveSpeed;
-            
+
             // 旋转朝向移动方向（SmoothDampAngle 做平滑旋转）
             float targetAngle = Mathf.Atan2(targetDirection.x, targetDirection.z) * Mathf.Rad2Deg;
             float smoothedAngle = Mathf.SmoothDampAngle(
-                transform.eulerAngles.y, 
-                targetAngle, 
-                ref rotationVelocity, 
+                transform.eulerAngles.y,
+                targetAngle,
+                ref rotationVelocity,
                 rotationSmoothTime
             );
             transform.rotation = Quaternion.Euler(0, smoothedAngle, 0);
@@ -123,7 +134,19 @@ public class PlayerController : NetworkBehaviour
         moveDelta.y = currentVelocityY;
 
         // ====== CharacterController 驱动移动 ======
-        characterController.Move(moveDelta * Time.fixedDeltaTime);
+        Vector3 posBefore = transform.position;
+        Vector3 displacement = moveDelta * Time.fixedDeltaTime;
+        characterController.Move(displacement);
+        Vector3 posAfterCC = transform.position;
+        Vector3 actualDelta = posAfterCC - posBefore;
+
+        if (Time.frameCount % 60 == 0)
+        {
+            Debug.Log($"[Move][Owner={OwnerClientId}] moveVec=({moveDelta.x:F2},{moveDelta.y:F2},{moveDelta.z:F2}) " +
+                      $"dt={Time.fixedDeltaTime:F4} displacement=({displacement.x:F3},{displacement.y:F3},{displacement.z:F3}) " +
+                      $"actualDelta=({actualDelta.x:F3},{actualDelta.y:F3},{actualDelta.z:F3}) " +
+                      $"CC.Move比预期多移了{actualDelta.magnitude / Mathf.Max(displacement.magnitude, 0.001f):F1}x");
+        }
     }
 
     // 可选：跳跃

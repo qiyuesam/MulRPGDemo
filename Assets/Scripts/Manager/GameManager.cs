@@ -36,11 +36,19 @@ public class GameManager : MonoBehaviour
 
     private void CreatePlayer(ulong clientId)
     {
-        GameObject playerObj=Instantiate(playerPrefab);
+        // 给每个客户端一个不同的出生位置，避免重叠
+        Vector3 spawnPos = new Vector3(
+            Random.Range(-3f, 3f),
+            2f,           // ← Y 轴抬高，确保 CC 底部在地面以上
+            Random.Range(-3f, 3f)
+        );
+    
+        GameObject playerObj = Instantiate(playerPrefab, spawnPos, Quaternion.identity);
         NetworkObject netObj = playerObj.GetComponent<NetworkObject>();
         netObj.SpawnWithOwnership(clientId);
-        Debug.Log($"Player spawned for client{clientId}");
+        Debug.Log($"Player spawned for client {clientId} at {spawnPos}");
     }
+
     
     public void OnStartServerButton()
     {
