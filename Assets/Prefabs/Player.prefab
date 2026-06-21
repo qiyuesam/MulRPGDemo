@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 2265978792731445773}
   - component: {fileID: 4699451004150292688}
   - component: {fileID: 1169057028291145924}
-  - component: {fileID: 2472897574234252807}
+  - component: {fileID: 8369914547261026463}
   m_Layer: 0
   m_Name: Player
   m_TagString: Untagged
@@ -50,7 +50,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  GlobalObjectIdHash: 1284023503
+  GlobalObjectIdHash: 3563062536
   AlwaysReplicateAsRoot: 0
   SynchronizeTransform: 1
   ActiveSceneSynchronization: 0
@@ -106,7 +106,7 @@ CharacterController:
   m_SkinWidth: 0.08
   m_MinMoveDistance: 0.001
   m_Center: {x: 0, y: 0, z: 0}
---- !u!114 &2472897574234252807
+--- !u!114 &8369914547261026463
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -115,7 +115,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 1330342073699686910}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e96cb6065543e43c4a752faaa1468eb1, type: 3}
+  m_Script: {fileID: 11500000, guid: d65971d89cc488247b56f01035b6b61c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   SyncPositionX: 1
