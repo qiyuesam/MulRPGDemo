@@ -18,10 +18,10 @@ public class InventoryUI : MonoBehaviour
     void Awake()
     {
         Instance = this;
-        slotUIs = new InventorySlotUI[20];
+        slotUIs = new InventorySlotUI[Inventory.SLOT_COUNT];
 
         // 生成 20 个格子
-        for (int i = 0; i < 20; i++)
+        for (int i = 0; i < slotUIs.Length; i++)
         {
             var go = Instantiate(slotPrefab, slotContainer);
             slotUIs[i] = go.GetComponent<InventorySlotUI>();
@@ -47,7 +47,7 @@ public class InventoryUI : MonoBehaviour
             }
         }
         if (inventory == null) return;
-        for (int i = 0; i < 20; i++)
+        for (int i = 0; i < slotUIs.Length; i++)
             slotUIs[i].Setup(inventory, i);
 
         panel.SetActive(true);
@@ -91,7 +91,7 @@ public class InventoryUI : MonoBehaviour
 
     void RefreshAll()
     {
-        for (int i = 0; i < 20; i++)
+        for (int i = 0; i < slotUIs.Length; i++)
             slotUIs[i]?.Refresh();
     }
 }

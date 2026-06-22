@@ -5,7 +5,7 @@ using System;
 public class Inventory : NetworkBehaviour
 {
     [SerializeField] private ItemDatabase itemDatabase;
-    private const int SLOT_COUNT = 20;//固定20格
+    public const int SLOT_COUNT = 50;//固定50格
     
     // NetworkList 自动网络同步。任何服务端的修改，自动推到所有客户端
     private NetworkList<InventorySlot> slots;//NetworkList<T> 要求 T 必须同时实现 INetworkSerializable 和 IEquatable<T>。
