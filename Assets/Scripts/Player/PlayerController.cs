@@ -59,8 +59,6 @@ public class PlayerController : NetworkBehaviour
     {
         if (!IsOwner) return;
         inputDirection = InputControls.Gameplay.Move.ReadValue<Vector3>();
-        if (Time.frameCount % 60 == 0)
-            Debug.Log($"[Update][Owner={OwnerClientId}] inputDir={inputDirection}, CC.enabled={characterController.enabled}, isGrounded={characterController.isGrounded}, pos={transform.position}");
         if (InputControls.Gameplay.Jump.triggered)  // .triggered = 按下那一帧为 true
         {
             Jump();
@@ -72,8 +70,6 @@ public class PlayerController : NetworkBehaviour
         if (!IsOwner) return;
         ApplyGravity();
         Move();
-        if (Time.frameCount % 60 == 0)
-            Debug.Log($"[FixedUpdate][Owner={OwnerClientId}] curVelY={currentVelocityY}, posAfter={transform.position}");
     }
 
     void ApplyGravity()
@@ -139,14 +135,7 @@ public class PlayerController : NetworkBehaviour
         characterController.Move(displacement);
         Vector3 posAfterCC = transform.position;
         Vector3 actualDelta = posAfterCC - posBefore;
-
-        if (Time.frameCount % 60 == 0)
-        {
-            Debug.Log($"[Move][Owner={OwnerClientId}] moveVec=({moveDelta.x:F2},{moveDelta.y:F2},{moveDelta.z:F2}) " +
-                      $"dt={Time.fixedDeltaTime:F4} displacement=({displacement.x:F3},{displacement.y:F3},{displacement.z:F3}) " +
-                      $"actualDelta=({actualDelta.x:F3},{actualDelta.y:F3},{actualDelta.z:F3}) " +
-                      $"CC.Move比预期多移了{actualDelta.magnitude / Mathf.Max(displacement.magnitude, 0.001f):F1}x");
-        }
+        
     }
 
     // 可选：跳跃

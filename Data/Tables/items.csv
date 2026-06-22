@@ -1,0 +1,12 @@
+﻿itemId,itemName,itemType,maxStack,description,icon
+1,铁剑,Equipment,1,新手村铁匠打造的普通长剑,sword_iron
+2,生命药水,Consumable,99,红色药剂饮用后恢复50点生命,pot_health
+3,魔力药水,Consumable,99,蓝色药剂饮用后恢复30点魔力,pot_mana
+4,铁盾,Equipment,1,橡木包边的铁质圆盾,shield_iron
+5,皮甲,Equipment,1,野猪皮缝制的轻甲,armor_leather
+6,铁矿石,Material,999,含铁量不错的矿石可提炼锻造,ore_iron
+7,麻绳,Material,999,粗麻编织的绳子冒险者必备,rope_hemp
+8,长老密信,Quest,1,信封封着火漆印痕,letter_elder
+9,烤野猪肉,Consumable,20,滋滋冒油的烤肉,meat_roast
+10,短弓,Equipment,1,猎户常用的短弓,short_bow
+11,钻石甲,Equipment,1,一个昂贵的甲,————
