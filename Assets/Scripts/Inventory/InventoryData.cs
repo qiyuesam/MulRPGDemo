@@ -79,7 +79,7 @@ public class InventoryData
         if (slotIndex < 0 || slotIndex >= SLOT_COUNT) return;
         if (slots[slotIndex].IsEmpty) return;
 
-        slots[slotIndex].count -= count;
+                slots[slotIndex].count = Mathf.Max(0, slots[slotIndex].count - count);slots[slotIndex].count -= count;
         if (slots[slotIndex].count <= 0)
             slots[slotIndex] = new InventorySlot();
 
@@ -98,8 +98,8 @@ public class InventoryData
     // ===== 使用物品 =====
     public void UseItem(ItemDatabase db, int slotIndex)
     {
-        if (slots[slotIndex].IsEmpty) return;
-        var item = db.GetItem(slots[slotIndex].itemId);
+                if (slotIndex < 0 || slotIndex >= SLOT_COUNT) return;
+        if (slots[slotIndex].IsEmpty) return;var item = db.GetItem(slots[slotIndex].itemId);
         if (item == null) return;
 
         if (item.type == ItemData.itemType.Consumable)

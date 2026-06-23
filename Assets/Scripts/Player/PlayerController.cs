@@ -28,7 +28,6 @@ public class PlayerController : NetworkBehaviour
 
     // 地面检测
     private bool isGrounded;
-    [SerializeField] private float groundCheckRadius = 0.2f;
     [SerializeField] private LayerMask groundMask = ~0;
 
     // ================================================================
@@ -121,11 +120,12 @@ public class PlayerController : NetworkBehaviour
 
     void Move()
     {
-        if (characterController == null) return;
+                if (characterController == null) return;
 
         // 获取相机方向（投影到地面 XZ 平面）
+        if (Camera.main == null) return;
         Transform camTransform = Camera.main.transform;
-        Vector3 camForward = camTransform.forward;
+Vector3 camForward = camTransform.forward;
         Vector3 camRight = camTransform.right;
         camForward.y = 0;
         camRight.y = 0;
@@ -161,9 +161,10 @@ public class PlayerController : NetworkBehaviour
         characterController.Move(moveDelta * Time.fixedDeltaTime);
     }
 
-    public void Jump()
+public void Jump()
     {
-        if (isGrounded)
+        // 直接读取 characterController.isGrounded，避免 Update/FixedUpdate 时序不一致
+        if (characterController.isGrounded)
         {
             currentVelocityY = Mathf.Sqrt(jumpHeight * -2f * gravity);
         }

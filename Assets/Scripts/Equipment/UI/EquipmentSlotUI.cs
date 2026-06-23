@@ -9,13 +9,15 @@ public class EquipmentSlotUI : MonoBehaviour
     private EquipSlotType slotType;
     private Equipment equipment;
 
-    public void Setup(Equipment eq, EquipSlotType type)
+        public void Setup(Equipment eq, EquipSlotType type)
     {
+        // 先解绑旧对象，防止 Open/Close 反复调用时重复订阅
+        if (equipment != null)
+            equipment.OnEquipmentChanged -= Refresh;
         equipment = eq;
         slotType = type;
         if (equipment != null)
-            equipment.OnEquipmentChanged += Refresh;
-    }
+            equipment.OnEquipmentChanged += Refresh;}
 
     void OnDestroy()
     {

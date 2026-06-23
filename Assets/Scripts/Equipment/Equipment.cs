@@ -19,8 +19,12 @@ public class Equipment : NetworkBehaviour
         data.Initialize();
     }
 
-    void Start()
+void Start()
     {
+        // 若 NetworkManager 已启动，交给 OnNetworkSpawn 处理
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+            return;
+
         if (!IsSpawned)
         {
             LoadFromDisk();
@@ -28,8 +32,11 @@ public class Equipment : NetworkBehaviour
         }
     }
 
-    public override void OnNetworkSpawn()
+public override void OnNetworkSpawn()
     {
+        // 移除 Start 中可能注册的本地 AutoSave
+        data.OnChanged -= AutoSave;
+
         if (IsServer)
             data.OnChanged += OnServerDataChanged;
         else
@@ -262,7 +269,7 @@ public class Equipment : NetworkBehaviour
     //  ServerRPC
     // ================================================================
 
-    [ServerRpc(RequireOwnership = false)]
+    [ServerRpc(RequireOwnership = true)]
     private void EquipFromChestServerRpc(int itemId)
     {
         var item = itemDatabase.GetItem(itemId);
@@ -271,21 +278,21 @@ public class Equipment : NetworkBehaviour
         SyncToClientsClientRpc(Serialize());
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [ServerRpc(RequireOwnership = true)]
     private void UnequipSlotServerRpc(int slotTypeInt)
     {
         ApplyUnequip((EquipSlotType)slotTypeInt);
         SyncToClientsClientRpc(Serialize());
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [ServerRpc(RequireOwnership = true)]
     private void ApplyPresetServerRpc(int[] presetIds)
     {
         data.ApplyPreset(presetIds);
         SyncToClientsClientRpc(Serialize());
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [ServerRpc(RequireOwnership = true)]
     private void UploadSaveDataServerRpc(string json)
     {
         data.FromJson(json);
@@ -310,13 +317,14 @@ public class Equipment : NetworkBehaviour
     //  调试热键
     // ================================================================
 
-    void Update()
+void Update()
     {
         if (IsSpawned && !IsOwner) return;
 
-        // 按 7 装备武器 100，按 8 清空武器，按 9 清空全部
+#if UNITY_EDITOR
         if (Input.GetKeyDown(KeyCode.Alpha7)) EquipFromChest(5);
-        if (Input.GetKeyDown(KeyCode.Alpha8)) EquipFromChest(0);    // 0 = 卸下武器
+        if (Input.GetKeyDown(KeyCode.Alpha8)) EquipFromChest(0);
         if (Input.GetKeyDown(KeyCode.Alpha9)) data.ClearAll();
+#endif
     }
 }

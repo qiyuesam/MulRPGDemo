@@ -51,7 +51,7 @@ public class EffectRunner : MonoBehaviour
     /// <summary>
     /// 从 Equipment 读取当前所有效果，按触发时机分组
     /// </summary>
-    private void RebuildCache()
+private void RebuildCache()
     {
         if (equipment == null)
         {
@@ -94,12 +94,9 @@ public class EffectRunner : MonoBehaviour
 
                 case EffectData.EffectType.SpeedBoost:
                     passiveList.Add(effect);
-                    // value1 = 百分比加成, 如 0.15 = 15%
                     speedMult += effect.value1;
                     break;
             }
-            Debug.Log($"[EffectRunner] 缓存重建: 攻击效果{onAttackEffects.Length} 受击效果{onHitEffects.Length} 击杀效果{onKillEffects.Length} 被动{passiveEffects.Length} 速度倍率={SpeedMultiplier}");
-
         }
 
         onAttackEffects  = attackList.ToArray();
@@ -107,6 +104,8 @@ public class EffectRunner : MonoBehaviour
         onKillEffects    = killList.ToArray();
         passiveEffects   = passiveList.ToArray();
         SpeedMultiplier  = speedMult;
+
+        Debug.Log($"[EffectRunner] 缓存重建: 攻击效果{onAttackEffects.Length} 受击效果{onHitEffects.Length} 击杀效果{onKillEffects.Length} 被动{passiveEffects.Length} 速度倍率={SpeedMultiplier}");
     }
 
     // ================================================================

@@ -23,10 +23,15 @@ public class InventoryUI : MonoBehaviour
     private int selectedIndex = -1;
     private bool isOpen;
 
-    void Awake()
+void Awake()
     {
+        if (Instance != null && Instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
         Instance = this;
-        // ★ 最大槽位先用常量；provider 确定后再真正初始化
+        // 最大槽位先用常量；provider 确定后再真正初始化
         slotUIs = new InventorySlotUI[InventoryData.SLOT_COUNT];
 
         for (int i = 0; i < slotUIs.Length; i++)

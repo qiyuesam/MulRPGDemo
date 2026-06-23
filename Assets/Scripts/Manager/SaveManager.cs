@@ -12,24 +12,39 @@ public static class SaveManager
         Path.Combine(Application.persistentDataPath, "Saves");
 #endif
 
-    public static void Save(string fileName, string json)
+public static void Save(string fileName, string json)
     {
-        Directory.CreateDirectory(SaveDir);
-        string path = Path.Combine(SaveDir, fileName);
-        File.WriteAllText(path, json);
-        Debug.Log($"[SaveManager] 已保存: {path} ({json.Length} 字节)");
+        try
+        {
+            Directory.CreateDirectory(SaveDir);
+            string path = Path.Combine(SaveDir, fileName);
+            File.WriteAllText(path, json);
+            Debug.Log($"[SaveManager] 已保存: {path} ({json.Length} 字节)");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[SaveManager] 保存失败: {fileName} - {e.Message}");
+        }
     }
 
-    public static string Load(string fileName)
+public static string Load(string fileName)
     {
-        string path = Path.Combine(SaveDir, fileName);
-        if (File.Exists(path))
+        try
         {
-            Debug.Log($"[SaveManager] 已加载: {path}");
-            return File.ReadAllText(path);
+            string path = Path.Combine(SaveDir, fileName);
+            if (File.Exists(path))
+            {
+                Debug.Log($"[SaveManager] 已加载: {path}");
+                return File.ReadAllText(path);
+            }
+            Debug.Log($"[SaveManager] 文件不存在: {path}");
+            return null;
         }
-        Debug.Log($"[SaveManager] 文件不存在: {path}");
-        return null;
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[SaveManager] 加载失败: {fileName} - {e.Message}");
+            return null;
+        }
     }
 
     public static void Delete(string fileName)

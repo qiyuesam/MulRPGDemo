@@ -19,9 +19,13 @@ public class Inventory : NetworkBehaviour
         data.Initialize();
     }
 
-    void Start()
+void Start()
     {
-        // ★ 本地模式：NetworkObject 未被 Spawn，OnNetworkSpawn 不会触发
+        // 若 NetworkManager 已启动（Host/Server/Client），交给 OnNetworkSpawn 处理
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+            return;
+
+        // 纯本地模式
         if (!IsSpawned)
         {
             LoadFromDisk();
@@ -29,9 +33,11 @@ public class Inventory : NetworkBehaviour
         }
     }
 
-    public override void OnNetworkSpawn()
+public override void OnNetworkSpawn()
     {
-        // data 已在 Awake 中 Initialize，这里只注册网络回调
+        // 移除 Start 中可能注册的本地 AutoSave，避免与网络回调双重触发
+        data.OnChanged -= AutoSave;
+
         if (IsServer)
             data.OnChanged += OnServerDataChanged;
         else
@@ -117,7 +123,7 @@ public class Inventory : NetworkBehaviour
             SyncToClientsClientRpc(Serialize());
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [ServerRpc(RequireOwnership = true)]
     private void UploadSaveDataServerRpc(string json)
     {
         Debug.Log($"[Inventory] 服务器收到客户端 {OwnerClientId} 的存档上传");
@@ -226,22 +232,22 @@ public class Inventory : NetworkBehaviour
     //  ServerRPC
     // ================================================================
 
-    [ServerRpc(RequireOwnership = false)]
+    [ServerRpc(RequireOwnership = true)]
     private void AddItemServerRpc(int itemId, int count)
         => data.AddItem(itemDatabase, itemId, count);
 
-    [ServerRpc(RequireOwnership = false)]
+    [ServerRpc(RequireOwnership = true)]
     private void SwapSlotsServerRpc(int from, int to)
         => data.SwapSlots(from, to);
 
-    [ServerRpc(RequireOwnership = false)]
+    [ServerRpc(RequireOwnership = true)]
     private void UseItemServerRpc(int slotIndex)
         => data.UseItem(itemDatabase, slotIndex);
 
-    [ServerRpc(RequireOwnership = false)]
+    [ServerRpc(RequireOwnership = true)]
     private void RemoveItemServerRpc(int slotIndex, int count)
         => data.RemoveItem(slotIndex, count);
-    [ServerRpc(RequireOwnership = false)]
+    [ServerRpc(RequireOwnership = true)]
     private void ClearAllItemsServerRpc()
     {
         data.Clear();
@@ -265,15 +271,15 @@ public class Inventory : NetworkBehaviour
     //  调试热键
     // ================================================================
 
-    void Update()
+void Update()
     {
-        // ★ 本地模式放行；联机非 Owner 不放行
         if (IsSpawned && !IsOwner) return;
 
+#if UNITY_EDITOR
         if (Input.GetKeyDown(KeyCode.Alpha1)) TryAddItem(1, 1);
         if (Input.GetKeyDown(KeyCode.Alpha2)) TryAddItem(8, 8);
         if (Input.GetKeyDown(KeyCode.Alpha3)) { /*...*/ }
-        if (Input.GetKeyDown(KeyCode.Alpha0)) ClearAllItems();  // 按 0 清空
-
+        if (Input.GetKeyDown(KeyCode.Alpha0)) ClearAllItems();
+#endif
     }
 }

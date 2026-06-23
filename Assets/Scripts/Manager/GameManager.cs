@@ -71,9 +71,8 @@ public class GameManager : MonoBehaviour
         if (currentMode == GameMode.Host || currentMode == GameMode.Client)
         {
             NetworkManager.Singleton.Shutdown();
-            // ReturnToLocalMode 已经帮你 SpawnLocalPlayer 了
-            // 不需要再 Spawn
-            return;   // ← 加这一行
+            ReturnToLocalMode();  // 直接切回，不依赖回调
+            return;
         }
 
         SpawnLocalPlayer();
