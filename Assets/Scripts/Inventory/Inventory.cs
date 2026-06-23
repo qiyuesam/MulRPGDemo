@@ -1,156 +1,279 @@
+// Assets/Scripts/Inventory/Inventory.cs
 using UnityEngine;
 using Unity.Netcode;
-using System;
 
 public class Inventory : NetworkBehaviour
 {
     [SerializeField] private ItemDatabase itemDatabase;
-    public const int SLOT_COUNT = 50;//固定50格
-    
-    // NetworkList 自动网络同步。任何服务端的修改，自动推到所有客户端
-    private NetworkList<InventorySlot> slots;//NetworkList<T> 要求 T 必须同时实现 INetworkSerializable 和 IEquatable<T>。
-    
-    public event Action OnInventoryChanged;
+    public InventoryData data = new InventoryData();
+    public event System.Action OnInventoryChanged;
 
-    private void Awake()
+    private const string SAVE_FILE = "player_inventory.sav";
+
+    // ================================================================
+    //  生命周期
+    // ================================================================
+
+    void Awake()
     {
-        slots = new NetworkList<InventorySlot>(new InventorySlot[SLOT_COUNT],NetworkVariableReadPermission.Everyone,NetworkVariableWritePermission.Server);
+        data.Initialize();
     }
-    
+
+    void Start()
+    {
+        // ★ 本地模式：NetworkObject 未被 Spawn，OnNetworkSpawn 不会触发
+        if (!IsSpawned)
+        {
+            LoadFromDisk();
+            data.OnChanged += AutoSave;
+        }
+    }
+
     public override void OnNetworkSpawn()
     {
+        // data 已在 Awake 中 Initialize，这里只注册网络回调
+        if (IsServer)
+            data.OnChanged += OnServerDataChanged;
+        else
+            data.OnChanged += OnClientDataChanged;
+
+        if (IsOwner)
+            LoadAndApplySave();
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        if (IsOwner)
+            SaveToDisk();
+        base.OnNetworkDespawn();
+    }
+
+    // ================================================================
+    //  数据变更回调
+    // ================================================================
+
+    private void OnServerDataChanged()
+    {
+        OnInventoryChanged?.Invoke();
+        SyncToClientsClientRpc(Serialize());
+
+        if (IsOwner)
+            AutoSave();
+    }
+
+    private void OnClientDataChanged()
+    {
+        OnInventoryChanged?.Invoke();
+    }
+
+    // ================================================================
+    //  存档/读档
+    // ================================================================
+
+    /// 纯本地读档（Start 里调用，简单直接）
+    private void LoadFromDisk()
+    {
+        string json = SaveManager.Load(SAVE_FILE);
+        if (!string.IsNullOrEmpty(json))
+        {
+            data.FromJson(json);
+            Debug.Log($"[Inventory] 本地背包已从存档恢复");
+        }
+        else
+        {
+            Debug.Log("[Inventory] 无存档，使用空背包");
+        }
+    }
+
+    public void ForceSave()
+    {
+        SaveManager.Save(SAVE_FILE, data.ToJson());
+    }
+    /// 联机读档（OnNetworkSpawn 里调用，分 Host/Client 两条路径）
+    private void LoadAndApplySave()
+    {
+        string json = SaveManager.Load(SAVE_FILE);
+        if (string.IsNullOrEmpty(json))
+        {
+            Debug.Log($"[Inventory] 无存档，使用空背包 (Owner={OwnerClientId})");
+            return;
+        }
+
         if (IsServer)
         {
-            for (int i = 0; i < SLOT_COUNT; i++)
-            {
-                if(slots.Count<=i)
-                    slots.Add(new InventorySlot());
-                else if(slots[i].itemId!=0)
-                    slots[i]= new InventorySlot();
-            }
+            data.FromJson(json);
+            Debug.Log($"[Inventory] Host 背包已从存档恢复 (Owner={OwnerClientId})");
         }
-        slots.OnListChanged+=(eventArgs)=>OnInventoryChanged?.Invoke();
-    }
-    
-    //======查询接口（本地调用）====
-    public InventorySlot GetSlot(int index)=>slots[index];
-    public int SlotCount=>SLOT_COUNT;
-
-    public bool IsFull
-    {
-        get
+        else
         {
-            for(int i=0;i<SlotCount;i++)
-                if(slots[i].IsEmpty) return false;
-            return true;
+            data.FromJson(json);
+            Debug.Log($"[Inventory] 客户端本地加载存档，同时上传服务器");
+            UploadSaveDataServerRpc(json);
+        }
+
+        OnInventoryChanged?.Invoke();
+
+        if (IsServer)
+            SyncToClientsClientRpc(Serialize());
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    private void UploadSaveDataServerRpc(string json)
+    {
+        Debug.Log($"[Inventory] 服务器收到客户端 {OwnerClientId} 的存档上传");
+        data.FromJson(json);
+        SyncToClientsClientRpc(Serialize());
+        OnInventoryChanged?.Invoke();
+    }
+
+    private void AutoSave()
+    {
+        SaveManager.Save(SAVE_FILE, data.ToJson());
+    }
+
+    private void SaveToDisk()
+    {
+        SaveManager.Save(SAVE_FILE, data.ToJson());
+        Debug.Log($"[Inventory] 背包已存档 (Owner={OwnerClientId})");
+    }
+
+    // ================================================================
+    //  操作入口：自动判断本地/联机
+    // ================================================================
+
+    public void TryAddItem(int itemId, int count)
+    {
+        // ★ 本地模式：直接操作，不走网络
+        if (!IsSpawned)
+        {
+            data.AddItem(itemDatabase, itemId, count);
+            return;
+        }
+
+        if (IsClient && !IsServer)
+            AddItemServerRpc(itemId, count);
+        else
+            data.AddItem(itemDatabase, itemId, count);
+    }
+
+    public void TrySwapSlots(int from, int to)
+    {
+        if (!IsSpawned)
+        {
+            data.SwapSlots(from, to);
+            return;
+        }
+
+        if (IsClient && !IsServer)
+            SwapSlotsServerRpc(from, to);
+        else
+            data.SwapSlots(from, to);
+    }
+
+    public void TryUseItem(int slotIndex)
+    {
+        if (!IsSpawned)
+        {
+            data.UseItem(itemDatabase, slotIndex);
+            return;
+        }
+
+        if (IsClient && !IsServer)
+            UseItemServerRpc(slotIndex);
+        else
+            data.UseItem(itemDatabase, slotIndex);
+    }
+
+    public void TryRemoveItem(int slotIndex, int count)
+    {
+        if (!IsSpawned)
+        {
+            data.RemoveItem(slotIndex, count);
+            return;
+        }
+
+        if (IsClient && !IsServer)
+            RemoveItemServerRpc(slotIndex, count);
+        else
+            data.RemoveItem(slotIndex, count);
+    }
+    // 本地/联机通用的清空入口
+    public void ClearAllItems()
+    {
+        if (!IsSpawned || IsServer)
+        {
+            data.Clear();
+            // 如果是联机模式，同步给所有客户端
+            if (IsSpawned && IsServer)
+                SyncToClientsClientRpc(Serialize());
+        }
+        else
+        {
+            // 纯客户端：请求服务器清空
+            ClearAllItemsServerRpc();
         }
     }
+
+    // ================================================================
+    //  查询接口
+    // ================================================================
+
+    public InventorySlot GetSlot(int index) => data.GetSlot(index);
     public ItemData GetItemData(int id) => itemDatabase.GetItem(id);
+    public int SlotCount => InventoryData.SLOT_COUNT;
 
-    
-    //=====添加物品====
-    [ServerRpc(RequireOwnership = false)]
-    public void AddItemServerRpc(int itemId, int count)
-    {
-        //先尝试堆叠
-        for (int i = 0; i < SlotCount; i++)
-        {
-            if (slots[i].itemId == itemId)
-            {
-                var item=itemDatabase.GetItem(itemId);
-                int maxStack = item != null ? item.maxStack : 99;
-                int space=maxStack-slots[i].count;
-                int toAdd=Mathf.Min(count,space);
-                var updated = slots[i];
-                updated.count+=toAdd;
-                slots[i] = updated;
-                count-=toAdd;
-                if (count <= 0) return;
-            }
-        }
-        //放到空格子
-        for (int i = 0; i < SLOT_COUNT; i++)
-        {
-            if (slots[i].IsEmpty)
-            {
-                var item=itemDatabase.GetItem(itemId);
-                int maxStack = item != null ? item.maxStack : 99;
-                int toAdd=Mathf.Min(count,maxStack);
-                slots[i]=new InventorySlot{itemId=itemId,count=toAdd};
-                count -= toAdd;
-                if (count <= 0) return;
-            }
-        }
-        Debug.LogWarning($"背包已满，无法装入 {itemId} x{count}");
-    }
-    // ====== 移除物品 ======
-    [ServerRpc(RequireOwnership = false)]
-    public void RemoveItemServerRpc(int slotIndex, int count)
-    {
-        if (slotIndex < 0 || slotIndex >= SLOT_COUNT) return;
-        var slot = slots[slotIndex];
-        if (slot.IsEmpty) return;
+    // ================================================================
+    //  ServerRPC
+    // ================================================================
 
-        slot.count -= count;
-        if (slot.count <= 0)
-            slot = new InventorySlot();  // 清零变空格
-        slots[slotIndex] = slot;
+    [ServerRpc(RequireOwnership = false)]
+    private void AddItemServerRpc(int itemId, int count)
+        => data.AddItem(itemDatabase, itemId, count);
+
+    [ServerRpc(RequireOwnership = false)]
+    private void SwapSlotsServerRpc(int from, int to)
+        => data.SwapSlots(from, to);
+
+    [ServerRpc(RequireOwnership = false)]
+    private void UseItemServerRpc(int slotIndex)
+        => data.UseItem(itemDatabase, slotIndex);
+
+    [ServerRpc(RequireOwnership = false)]
+    private void RemoveItemServerRpc(int slotIndex, int count)
+        => data.RemoveItem(slotIndex, count);
+    [ServerRpc(RequireOwnership = false)]
+    private void ClearAllItemsServerRpc()
+    {
+        data.Clear();
+        SyncToClientsClientRpc(Serialize());
     }
 
-    // ====== 交换两个格子 ======
-    [ServerRpc(RequireOwnership = false)]
-    public void SwapSlotsServerRpc(int from, int to)
+    // ================================================================
+    //  网络同步
+    // ================================================================
+
+    [ClientRpc]
+    private void SyncToClientsClientRpc(string json)
     {
-        if (from < 0 || from >= SLOT_COUNT) return;
-        if (to < 0 || to >= SLOT_COUNT) return;
-        var temp = slots[from];
-        slots[from] = slots[to];
-        slots[to] = temp;
+        data.FromJson(json);
+        OnInventoryChanged?.Invoke();
     }
 
-    // ====== 使用物品 ======
-    [ServerRpc(RequireOwnership = false)]
-    public void UseItemServerRpc(int slotIndex)
-    {
-        var slot = slots[slotIndex];
-        if (slot.IsEmpty) return;
+    private string Serialize() => data.ToJson();
 
-        var item = itemDatabase.GetItem(slot.itemId);
-        if (item == null) return;
+    // ================================================================
+    //  调试热键
+    // ================================================================
 
-        if (item.type == ItemData.itemType.Consumable)
-        {
-            // 消耗品：减少 1 个
-            RemoveItemServerRpc(slotIndex, 1);
-            // TODO: 触发效果（加血、加蓝等）
-        }
-        // 装备类物品不能用，切到装备系统处理
-    }
     void Update()
     {
-        if (!IsOwner) return;  // 只控制自己的背包
+        // ★ 本地模式放行；联机非 Owner 不放行
+        if (IsSpawned && !IsOwner) return;
 
-        // 按 1：加一把铁剑
-        if (Input.GetKeyDown(KeyCode.Alpha1))
-            AddItemServerRpc(1, 1);
+        if (Input.GetKeyDown(KeyCode.Alpha1)) TryAddItem(1, 1);
+        if (Input.GetKeyDown(KeyCode.Alpha2)) TryAddItem(8, 8);
+        if (Input.GetKeyDown(KeyCode.Alpha3)) { /*...*/ }
+        if (Input.GetKeyDown(KeyCode.Alpha0)) ClearAllItems();  // 按 0 清空
 
-        // 按 2：加 5 瓶生命药水
-        if (Input.GetKeyDown(KeyCode.Alpha2))
-            AddItemServerRpc(2, 5);
-
-        // 按 3：打印当前背包内容
-        if (Input.GetKeyDown(KeyCode.Alpha3))
-        {
-            Debug.Log("==== 背包内容 ====");
-            for (int i = 0; i < SLOT_COUNT; i++)
-            {
-                if (!slots[i].IsEmpty)
-                    Debug.Log($"格子{i}: ID={slots[i].itemId} x{slots[i].count}");
-            }
-        }
-        if (Input.GetKeyDown(KeyCode.Alpha0))
-            for (int i = 0; i < SLOT_COUNT; i++)
-                RemoveItemServerRpc(i, 99);
     }
 }
-

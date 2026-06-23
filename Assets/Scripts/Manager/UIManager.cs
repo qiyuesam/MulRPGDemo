@@ -27,6 +27,9 @@ public class UIManager : MonoBehaviour
 
     void ToggleInventory()
     {
+        // ★ 禁止游戏开始前打开背包
+        var invs = FindObjectsOfType<Inventory>();
+        if (invs.Length == 0) return;
         isInventoryOpen = !isInventoryOpen;
 
         if (isInventoryOpen)

@@ -1,0 +1,31 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 0}
+  m_Name: item9
+  m_EditorClassIdentifier: Assembly-CSharp::WeaponData
+  itemId: 9
+  itemName: "\u77ED\u5F13"
+  itemDescription: "\u730E\u6237\u5E38\u7528\u7684\u77ED\u5F13\u8F7B\u4FBF\u4F46\u5C04\u7A0B\u6709\u9650"
+  itemIcon: {fileID: 0}
+  type: 2
+  maxStack: 1
+  itemPrefab: {fileID: 0}
+  attributes:
+    attack: 8
+    defense: 0
+    maxHp: 0
+    maxMp: 0
+    moveSpeedBonus: 0
+    attackSpeedBonus: 0.1
+    critRate: 0.08
+    critDamage: 1.6
+  effects: []

@@ -5,6 +5,7 @@ using Unity.Netcode;
 using System;
 
 //为什么用Struct:struct是值类型，NetworkList直接存值，不需要new,不产生GC
+[System.Serializable]
 public struct InventorySlot : INetworkSerializable,IEquatable<InventorySlot>
 {
     public int itemId;
@@ -14,7 +15,7 @@ public struct InventorySlot : INetworkSerializable,IEquatable<InventorySlot>
 
     public bool Equals(InventorySlot other)
     {
-        return itemId == other.itemId && count == other.count;
+        return itemId == other.itemId && count == other.count;   
     }
     
     public void NetworkSerialize<T>(BufferSerializer<T> serializer) 

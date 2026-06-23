@@ -1,3 +1,5 @@
+// Assets/Scripts/Inventory/UI/InventorySlotUI.cs（修改后，改动标 ★）
+
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -9,29 +11,30 @@ public class InventorySlotUI : MonoBehaviour
     [SerializeField] private Image selectBorder;
 
     private int slotIndex;
-    private Inventory inventory;
+    // ★ 改1：Inventory → IInventoryProvider
+    private IInventoryProvider provider;
 
-    // InventoryUI 初始化时调用
-    public void Setup(Inventory inv, int index)
+    // ★ 改2：参数类型 Inventory → IInventoryProvider
+    public void Setup(IInventoryProvider inv, int index)
     {
-        inventory = inv;
+        provider = inv;
         slotIndex = index;
         Refresh();
     }
 
-    // 数据变了刷新显示
     public void Refresh()
     {
-        var slot = inventory.GetSlot(slotIndex);
+        // ★ 改3：inventory → provider
+        var slot = provider.GetSlot(slotIndex);
         if (slot.IsEmpty)
         {
             icon.sprite = null;
-            icon.color = new Color(1, 1, 1, 0);   // 完全透明
+            icon.color = new Color(1, 1, 1, 0);
             countText.text = "";
         }
         else
         {
-            var item = inventory.GetItemData(slot.itemId);
+            var item = provider.GetItemData(slot.itemId);
             icon.sprite = item?.itemIcon;
             icon.color = Color.white;
             countText.text = slot.count > 1 ? slot.count.ToString() : "";
@@ -43,10 +46,8 @@ public class InventorySlotUI : MonoBehaviour
         selectBorder.gameObject.SetActive(selected);
     }
 
-    // Button 点击事件绑定这个
     public void OnClick()
     {
-        // 通知 InventoryUI 处理选中/交换逻辑
         InventoryUI.Instance.OnSlotClicked(slotIndex);
     }
 }

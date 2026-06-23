@@ -14,6 +14,9 @@ GameObject:
   - component: {fileID: 1169057028291145924}
   - component: {fileID: 8369914547261026463}
   - component: {fileID: 2910127051202264570}
+  - component: {fileID: 4383064959669428149}
+  - component: {fileID: -4433292533451646373}
+  - component: {fileID: -3706399602068683742}
   m_Layer: 0
   m_Name: Player
   m_TagString: Untagged
@@ -71,7 +74,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 01e28452987468d43bc77a779d728250, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  moveSpeed: 6
+  defaultMoveSpeed: 6
   rotationSmoothTime: 0.1
   gravity: -9.81
   groundedGravity: -2
@@ -150,6 +153,58 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   itemDatabase: {fileID: 11400000, guid: 00618a98a0b23b94b8f02992f4b28e6c, type: 2}
+  data:
+    slots: []
+--- !u!114 &4383064959669428149
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1330342073699686910}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3d31a711a7bb9804781ac6ef91d03516, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  baseAttack: 10
+  baseDefense: 5
+  baseMaxHp: 100
+  baseMaxMp: 50
+  baseMoveSpeed: 6
+  baseAttackSpeed: 1
+  baseCritRate: 0.05
+  baseCritDamage: 1.5
+  currentHp: 0
+  currentMp: 0
+--- !u!114 &-4433292533451646373
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1330342073699686910}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8bada313810df4142914234fac730aec, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  itemDatabase: {fileID: 11400000, guid: 00618a98a0b23b94b8f02992f4b28e6c, type: 2}
+  data:
+    weaponItemId: 0
+    equipItemIds: 00000000000000000000000000000000
+--- !u!114 &-3706399602068683742
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1330342073699686910}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 145b2848ea8906c4592aa507c047f773, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1 &5778441824257239097
 GameObject:
   m_ObjectHideFlags: 0

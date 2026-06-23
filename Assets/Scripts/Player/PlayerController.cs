@@ -1,3 +1,4 @@
+// Assets/Scripts/Player/PlayerController.cs
 using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -7,14 +8,15 @@ public class PlayerController : NetworkBehaviour
 {
     private CharacterController characterController;
     public PlayerInputControls InputControls;
+    private PlayerStats playerStats;       // ★ 新增
 
     [Header("Movement")]
-    [SerializeField] private float moveSpeed = 6f;
+    [SerializeField] private float defaultMoveSpeed = 6f;   // ★ 改名：fallback 值
     [SerializeField] private float rotationSmoothTime = 0.1f;
 
     [Header("Gravity")]
     [SerializeField] private float gravity = -9.81f;
-    [SerializeField] private float groundedGravity = -2f; // 贴地小重力，防止悬空
+    [SerializeField] private float groundedGravity = -2f;
     [SerializeField] private float jumpHeight = 1.5f;
 
     // 输入
@@ -27,13 +29,29 @@ public class PlayerController : NetworkBehaviour
     // 地面检测
     private bool isGrounded;
     [SerializeField] private float groundCheckRadius = 0.2f;
-    [SerializeField] private LayerMask groundMask = ~0; // 默认检测所有层
+    [SerializeField] private LayerMask groundMask = ~0;
+
+    // ================================================================
+    //  初始化
+    // ================================================================
+
+    void Awake()
+    {
+        characterController = GetComponent<CharacterController>();
+        playerStats = GetComponent<PlayerStats>();   // ★ 新增
+    }
+
+    void Start()
+    {
+        // ★ 本地模式：NetworkObject 未被 Spawn，OnNetworkSpawn 不会触发
+        if (!IsSpawned)
+        {
+            InitPlayer();
+        }
+    }
 
     public override void OnNetworkSpawn()
     {
-        Debug.Log($"[OnNetworkSpawn] LocalClientId={NetworkManager.LocalClientId}, OwnerClientId={OwnerClientId}, IsServer={IsServer}, IsHost={IsHost}");
-        characterController = GetComponent<CharacterController>();
-
         if (!IsOwner)
         {
             enabled = false;
@@ -41,8 +59,12 @@ public class PlayerController : NetworkBehaviour
             return;
         }
 
+        InitPlayer();
+    }
 
-        // 只有 Owner 端执行以下逻辑
+    // ★ 本地和联机共用的初始化逻辑
+    private void InitPlayer()
+    {
         InputControls = new PlayerInputControls();
         InputControls.Gameplay.Enable();
 
@@ -55,31 +77,41 @@ public class PlayerController : NetworkBehaviour
         }
     }
 
+    // ================================================================
+    //  每帧输入
+    // ================================================================
+
     void Update()
     {
-        if (!IsOwner) return;
+        // ★ 联机非 Owner 不处理；本地模式 (IsSpawned=false) 放行
+        if (IsSpawned && !IsOwner) return;
+
         inputDirection = InputControls.Gameplay.Move.ReadValue<Vector3>();
-        if (InputControls.Gameplay.Jump.triggered)  // .triggered = 按下那一帧为 true
+        if (InputControls.Gameplay.Jump.triggered)
         {
             Jump();
         }
     }
 
+    // ================================================================
+    //  物理更新
+    // ================================================================
+
     void FixedUpdate()
     {
-        if (!IsOwner) return;
+        if (IsSpawned && !IsOwner) return;
+
         ApplyGravity();
         Move();
     }
 
     void ApplyGravity()
     {
-        // 地面检测
         isGrounded = characterController.isGrounded;
 
         if (isGrounded && currentVelocityY < 0)
         {
-            currentVelocityY = groundedGravity; // 保持贴地
+            currentVelocityY = groundedGravity;
         }
         else
         {
@@ -91,7 +123,7 @@ public class PlayerController : NetworkBehaviour
     {
         if (characterController == null) return;
 
-        // ====== 获取相机方向（投影到地面 XZ 平面）======
+        // 获取相机方向（投影到地面 XZ 平面）
         Transform camTransform = Camera.main.transform;
         Vector3 camForward = camTransform.forward;
         Vector3 camRight = camTransform.right;
@@ -100,18 +132,17 @@ public class PlayerController : NetworkBehaviour
         camForward.Normalize();
         camRight.Normalize();
 
-        // ====== 相机相对移动方向 ======
+        // 相机相对移动方向
         Vector3 targetDirection = (camForward * inputDirection.z + camRight * inputDirection.x).normalized;
 
-        // ====== 构建移动向量 ======
         Vector3 moveDelta;
 
         if (targetDirection != Vector3.zero)
         {
-            // 水平移动
-            moveDelta = targetDirection * moveSpeed;
+            // ★ 改动：从 PlayerStats 动态读取移速，失效时 fallback 到 Inspector 值
+            float currentSpeed = playerStats != null ? playerStats.MoveSpeed : defaultMoveSpeed;
+            moveDelta = targetDirection * currentSpeed;
 
-            // 旋转朝向移动方向（SmoothDampAngle 做平滑旋转）
             float targetAngle = Mathf.Atan2(targetDirection.x, targetDirection.z) * Mathf.Rad2Deg;
             float smoothedAngle = Mathf.SmoothDampAngle(
                 transform.eulerAngles.y,
@@ -126,19 +157,10 @@ public class PlayerController : NetworkBehaviour
             moveDelta = Vector3.zero;
         }
 
-        // ====== 叠加垂直速度（重力/跳跃） ======
         moveDelta.y = currentVelocityY;
-
-        // ====== CharacterController 驱动移动 ======
-        Vector3 posBefore = transform.position;
-        Vector3 displacement = moveDelta * Time.fixedDeltaTime;
-        characterController.Move(displacement);
-        Vector3 posAfterCC = transform.position;
-        Vector3 actualDelta = posAfterCC - posBefore;
-        
+        characterController.Move(moveDelta * Time.fixedDeltaTime);
     }
 
-    // 可选：跳跃
     public void Jump()
     {
         if (isGrounded)
