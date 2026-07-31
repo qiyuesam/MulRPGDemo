@@ -79,7 +79,7 @@ public class InventoryData
         if (slotIndex < 0 || slotIndex >= SLOT_COUNT) return;
         if (slots[slotIndex].IsEmpty) return;
 
-                slots[slotIndex].count = Mathf.Max(0, slots[slotIndex].count - count);slots[slotIndex].count -= count;
+                slots[slotIndex].count = Mathf.Max(0, slots[slotIndex].count - count);
         if (slots[slotIndex].count <= 0)
             slots[slotIndex] = new InventorySlot();
 

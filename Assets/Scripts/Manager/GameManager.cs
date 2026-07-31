@@ -20,6 +20,16 @@ public class GameManager : MonoBehaviour
 
     void Start()
     {
+        // ────── 强制统一 NetworkConfig ──────
+        var config = NetworkManager.Singleton.NetworkConfig;
+        config.ProtocolVersion = 0;
+        config.TickRate = 120;
+        config.ConnectionApproval = false;
+        config.ForceSamePrefabs = false;
+        config.EnableSceneManagement = true;
+        config.EnsureNetworkVariableLengthSafety = false;
+        config.RpcHashSize = 0;
+
         // ────── 客户端连接 ──────
         NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
         NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
@@ -92,6 +102,10 @@ public class GameManager : MonoBehaviour
         // 切到 Host 前：保存并清理当前状态
         SwitchToNetworkMode(GameMode.Host);
 
+        // ★ 诊断：打印 NetworkConfig Hash
+        Debug.Log($"[Host] ConfigHash = {NetworkManager.Singleton.NetworkConfig.GetConfig(false)}");
+        Debug.Log($"[Host] ProtocolVersion={NetworkManager.Singleton.NetworkConfig.ProtocolVersion} TickRate={NetworkManager.Singleton.NetworkConfig.TickRate} ForceSamePrefabs={NetworkManager.Singleton.NetworkConfig.ForceSamePrefabs}");
+
         if (NetworkManager.Singleton.StartHost())
         {
             Debug.Log("房间已创建（Host），等待其他玩家加入...");
@@ -114,6 +128,10 @@ public class GameManager : MonoBehaviour
         }
 
         SwitchToNetworkMode(GameMode.Client);
+
+        // ★ 诊断：打印 NetworkConfig Hash
+        Debug.Log($"[Client] ConfigHash = {NetworkManager.Singleton.NetworkConfig.GetConfig(false)}");
+        Debug.Log($"[Client] ProtocolVersion={NetworkManager.Singleton.NetworkConfig.ProtocolVersion} TickRate={NetworkManager.Singleton.NetworkConfig.TickRate} ForceSamePrefabs={NetworkManager.Singleton.NetworkConfig.ForceSamePrefabs}");
 
         if (NetworkManager.Singleton.StartClient())
         {

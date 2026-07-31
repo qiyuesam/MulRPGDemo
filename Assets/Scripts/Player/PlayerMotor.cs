@@ -18,10 +18,12 @@ public class PlayerMotor : NetworkBehaviour
     public bool JumpRequest { get;set; }
     public bool IsGrounded { get;set; }
     public bool IsMoving { get;set; }
+    public float currentSpeed { get; set; }
     public Vector3 Velocity { get;set; }
 
     private CharacterController cc;
     private PlayerStats playerStats;
+    private CombatSystem combat;
     private float currentVelocityY;
     private float rotationVelocity;
 
@@ -29,6 +31,7 @@ public class PlayerMotor : NetworkBehaviour
     {
         cc = GetComponent<CharacterController>();
         playerStats = GetComponent<PlayerStats>();
+        combat = GetComponent<CombatSystem>();
     }
 
     void FixedUpdate()
@@ -67,6 +70,10 @@ public class PlayerMotor : NetworkBehaviour
     {
         Vector3 dir = InputDirection;
 
+        // ★ 攻击时禁止水平移动（重力照常），动画播完自动解除
+        if (combat != null && combat.ComboIndex > 0)
+            dir = Vector3.zero;
+
         if (dir != Vector3.zero)
         {
             // 相机相对方向
@@ -83,6 +90,7 @@ public class PlayerMotor : NetworkBehaviour
             }
 
             float speed = playerStats != null ? playerStats.MoveSpeed : defaultMoveSpeed;
+            currentSpeed = speed;
             Vector3 moveDelta = dir * speed;
 
             float targetAngle = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
@@ -105,6 +113,7 @@ public class PlayerMotor : NetworkBehaviour
 
             Velocity = Vector3.zero;
             IsMoving = false;
+			currentSpeed=0;
         }
     }
 }

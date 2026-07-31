@@ -8,7 +8,7 @@ public class PlayerController : NetworkBehaviour
 {
     public PlayerInputControls InputControls;
     private PlayerMotor motor;
-
+    private CombatSystem combat;
 
     // ================================================================
     //  初始化
@@ -17,6 +17,7 @@ public class PlayerController : NetworkBehaviour
     void Awake()
     {
         motor = GetComponent<PlayerMotor>();
+        combat = GetComponent<CombatSystem>();   // 新增
     }
 
     void Start()
@@ -64,7 +65,8 @@ public class PlayerController : NetworkBehaviour
         {
             motor.JumpRequest = true;
         }
-        
+        if (InputControls.Gameplay.Fire.triggered)
+            combat.AttackRequest = true;
     }
 }
 

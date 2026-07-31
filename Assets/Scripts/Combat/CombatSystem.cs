@@ -4,27 +4,43 @@ using Unity.Netcode;
 
 public class CombatSystem : NetworkBehaviour
 {
-    // ===== 依赖（Awake 时 GetComponent）=====
+    // ===== 依赖 =====
     private PlayerStats stats;
     private EffectRunner effectRunner;
+    private Equipment equipment;
+    private Animator animator;
+    private CharacterController cc;
 
     // ===== 黑板：攻击状态 =====
-    public float AttackCooldown { get; private set; }  // 当前 CD 剩余
+    public float AttackCooldown { get; private set; }
     public bool IsOnCooldown => AttackCooldown > 0;
-    public bool AttackRequest { get; set; }             // Controller 写入
+    public bool AttackRequest { get; set; }
 
     [Header("攻击设置")]
     [SerializeField] private float attackCooldownTime = 0.5f;
     [SerializeField] private float attackRange = 2f;
     [SerializeField] private LayerMask enemyLayer;
 
+    [Header("攻击位移")]
+    [SerializeField] private float attackLungeDistance = 1.2f;  // 每段攻击的前冲距离
+    [SerializeField] private float attackLungeDuration = 0.15f; // 位移持续时长（秒），0=瞬发
+
+    // ★ 连段状态（用属性暴露给 PlayerAnimation 读）
+    public int ComboIndex { get; private set; }       // 0=空闲, 1~N=连段中
+    public int ComboMax   { get; private set; } = 5;  // 当前武器段数
+    private bool comboWindowOpen;
+    private float comboWindowStart = 0.7f;
+
     // ===== 事件 =====
-    public System.Action<CombatResult> OnCombatResolved; // UI 层订阅→显示飘字
+    public System.Action<CombatResult> OnCombatResolved;
 
     void Awake()
     {
-        stats = GetComponent<PlayerStats>();
+        stats        = GetComponent<PlayerStats>();
         effectRunner = GetComponent<EffectRunner>();
+        equipment    = GetComponent<Equipment>();
+        animator     = GetComponentInChildren<Animator>();
+        cc           = GetComponent<CharacterController>();
     }
 
     void Update()
@@ -33,113 +49,197 @@ public class CombatSystem : NetworkBehaviour
         if (AttackCooldown > 0)
             AttackCooldown -= Time.deltaTime;
 
-        // 处理攻击请求
+        // ── 连段窗口检测 ──
+        if (ComboIndex > 0 && animator != null)
+        {
+            if (animator.IsInTransition(0))   // ★ 过渡期间不检测，等动画稳定
+                goto SkipComboCheck;
+
+            var state = animator.GetCurrentAnimatorStateInfo(0);
+            float t = state.normalizedTime % 1f;
+            comboWindowOpen = (t >= comboWindowStart && t < 0.95f);
+
+            if (t >= 0.9f || !state.IsTag("Attack"))
+                ResetCombo();
+        }
+        SkipComboCheck:
+
+        // ── 攻击请求 ──
         if (AttackRequest && !IsOnCooldown)
         {
             AttackRequest = false;
-            TryAttack();
+            TryComboAttack();
         }
     }
 
-    // ---------- 攻击入口（Step 0：目标检测）----------
-    void TryAttack()
+    // ────────── 连段攻击入口 ──────────
+    void TryComboAttack()
     {
-        // 范围检测
+        // 从武器读配置（每次攻击都读，换武器即时生效）
+        RefreshWeaponConfig();
+
+        // 非空闲时，必须处于连段窗口内
+        if (ComboIndex > 0 && !comboWindowOpen)
+            return;
+
+        // 推进连段
+        ComboIndex = (ComboIndex % ComboMax) + 1;
+
+        // ★ 攻击朝向锁定为摄像机前方
+        FaceCameraDirection();
+
+        // 驱驱动画
+        if (animator != null)
+            animator.SetInteger("ComboIndex", ComboIndex);
+
+        // ★ 攻击前冲位移
+        ApplyAttackLunge();
+
+        // 伤害
+        PerformAttackDamage();
+
+        // CD
+        AttackCooldown = attackCooldownTime;
+    }
+
+    void RefreshWeaponConfig()
+    {
+        ComboMax = 5;
+        comboWindowStart = 0.7f;
+
+        if (equipment != null)
+        {
+            var weapon = equipment.GetWeapon();
+            if (weapon is WeaponData wd && wd.maxCombo > 0)
+            {
+                ComboMax = wd.maxCombo;
+                comboWindowStart = wd.comboWindowStart;
+            }
+        }
+    }
+
+    void ResetCombo()
+    {
+        ComboIndex = 0;
+        comboWindowOpen = false;
+        if (animator != null)
+            animator.SetInteger("ComboIndex", 0);
+    }
+
+    // ────────── 攻击位移 ──────────
+    private Coroutine activeLunge;
+
+    /// <summary>获取摄像机面朝方向（水平面投影）</summary>
+    Vector3 GetCameraForward()
+    {
+        if (Camera.main == null) return transform.forward;
+        Vector3 f = Camera.main.transform.forward;
+        f.y = 0;
+        return f.sqrMagnitude > 0.001f ? f.normalized : transform.forward;
+    }
+
+    /// <summary>瞬间将角色转向摄像机前方</summary>
+    void FaceCameraDirection()
+    {
+        Vector3 dir = GetCameraForward();
+        transform.rotation = Quaternion.LookRotation(dir);
+    }
+
+    void ApplyAttackLunge()
+    {
+        if (cc == null || attackLungeDistance <= 0) return;
+
+        if (activeLunge != null)
+            StopCoroutine(activeLunge);
+
+        Vector3 dir = GetCameraForward();
+
+        if (attackLungeDuration > 0)
+            activeLunge = StartCoroutine(LungeRoutine(dir));
+        else
+            cc.Move(dir * attackLungeDistance);
+    }
+
+    System.Collections.IEnumerator LungeRoutine(Vector3 direction)
+    {
+        float elapsed = 0f;
+        float totalDist = attackLungeDistance;
+        float duration = attackLungeDuration;
+
+        while (elapsed < duration)
+        {
+            float step = totalDist * (Time.deltaTime / duration);
+            cc.Move(direction * step);
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+        activeLunge = null;
+    }
+
+    // ────────── 伤害管道（原 TryAttack 逻辑）──────────
+    void PerformAttackDamage()
+    {
         Collider[] hits = Physics.OverlapSphere(transform.position, attackRange, enemyLayer);
         if (hits.Length == 0) return;
 
-        // 取最近的敌人
         Transform target = GetClosestTarget(hits);
         if (target == null) return;
 
-        // 获取目标组件
         PlayerStats targetStats = target.GetComponent<PlayerStats>();
         EffectRunner targetEffects = target.GetComponent<EffectRunner>();
         if (targetStats == null) return;
 
-        // 执行管道
         CombatResult result = ExecutePipeline(targetStats, targetEffects);
-
-        // CD
         AttackCooldown = attackCooldownTime;
 
-        // 网络同步
         if (IsSpawned && IsServer)
             SyncDamageClientRpc(target.gameObject, result.finalDamage);
 
-        // 通知 UI
         OnCombatResolved?.Invoke(result);
     }
 
-    // ---------- 6步管道 ----------
     CombatResult ExecutePipeline(PlayerStats defenderStats, EffectRunner defenderEffects)
     {
-        // Step 1: 原始伤害 = 攻击力
         float rawDamage = stats.Attack;
-
-        // Step 2: 攻击方效果（吸血、DoT）
         AttackResult atkResult = effectRunner.ProcessOnAttack(rawDamage);
-
-        // Step 3: 防御方效果（闪避、反伤）
         DefendResult defResult = defenderEffects.ProcessOnHit(rawDamage);
 
-        // Step 4: 闪避检查 —— 管道终止
         if (defResult.dodged)
-        {
             return new CombatResult { dodged = true };
-        }
 
-        // Step 5: 伤害公式
         float finalDamage = CalculateDamage(rawDamage, defenderStats.Defense,
                                             stats.CritRate, stats.CritDamage);
-
-        // Step 6: 执行伤害
         ApplyDamage(finalDamage, atkResult, defResult, defenderStats);
 
         return new CombatResult
         {
-            finalDamage = finalDamage,
-            selfHeal = atkResult.selfHeal,
+            finalDamage  = finalDamage,
+            selfHeal     = atkResult.selfHeal,
             reflectDamage = defResult.reflectDamage,
-            targetDead = defenderStats.CurrentHp <= 0
+            targetDead   = defenderStats.CurrentHp <= 0
         };
     }
 
-    // ---------- 伤害公式 ----------
     float CalculateDamage(float raw, int defense, float critRate, float critDamage)
     {
-        // 减伤
         float reduction = defense / (defense + 100f);
         float damage = raw * (1f - reduction);
-
-        // 暴击
-        bool crit = Random.value < critRate;
-        if (crit) damage *= critDamage;
-
-        return Mathf.Max(1, damage); // 最低1点伤害
+        if (Random.value < critRate) damage *= critDamage;
+        return Mathf.Max(1, damage);
     }
 
-    // ---------- 伤害执行 ----------
     void ApplyDamage(float damage, AttackResult atkResult,
                      DefendResult defResult, PlayerStats defenderStats)
     {
-        // 扣血
         defenderStats.CurrentHp -= (int)damage;
-
-        // 吸血
         if (atkResult.selfHeal > 0)
             stats.CurrentHp += (int)atkResult.selfHeal;
-
-        // 反伤
         if (defResult.reflectDamage > 0)
             stats.CurrentHp -= (int)defResult.reflectDamage;
-
-        // 击杀回复
         if (defenderStats.CurrentHp <= 0)
             stats.CurrentHp += (int)effectRunner.ProcessOnKill();
     }
 
-    // ---------- 辅助 ----------
     Transform GetClosestTarget(Collider[] hits)
     {
         Transform best = null;
@@ -153,10 +253,9 @@ public class CombatSystem : NetworkBehaviour
     }
 
     [ClientRpc]
-    void SyncDamageClientRpc(NetworkObjectReference targetRef, float damage) {  }
+    void SyncDamageClientRpc(NetworkObjectReference targetRef, float damage) { }
 }
 
-// 战斗结果数据（用于 UI 飘字）
 public struct CombatResult
 {
     public bool dodged;
