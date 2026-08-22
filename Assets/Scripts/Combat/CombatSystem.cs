@@ -68,7 +68,9 @@ public class CombatSystem : NetworkBehaviour
         if (AttackRequest && !IsOnCooldown)
         {
             AttackRequest = false;
-            TryComboAttack();
+            // ★ 死亡后不能攻击
+            if (stats == null || !stats.IsDead)
+                TryComboAttack();
         }
     }
 
@@ -179,6 +181,7 @@ public class CombatSystem : NetworkBehaviour
     // ────────── 伤害管道（原 TryAttack 逻辑）──────────
     void PerformAttackDamage()
     {
+        if(!IsServer) return;
         Collider[] hits = Physics.OverlapSphere(transform.position, attackRange, enemyLayer);
         if (hits.Length == 0) return;
 
@@ -191,9 +194,7 @@ public class CombatSystem : NetworkBehaviour
 
         CombatResult result = ExecutePipeline(targetStats, targetEffects);
         AttackCooldown = attackCooldownTime;
-
-        if (IsSpawned && IsServer)
-            SyncDamageClientRpc(target.gameObject, result.finalDamage);
+        
 
         OnCombatResolved?.Invoke(result);
     }
@@ -201,7 +202,6 @@ public class CombatSystem : NetworkBehaviour
     CombatResult ExecutePipeline(PlayerStats defenderStats, EffectRunner defenderEffects)
     {
         float rawDamage = stats.Attack;
-        AttackResult atkResult = effectRunner.ProcessOnAttack(rawDamage);
         DefendResult defResult = defenderEffects.ProcessOnHit(rawDamage);
 
         if (defResult.dodged)
@@ -209,6 +209,8 @@ public class CombatSystem : NetworkBehaviour
 
         float finalDamage = CalculateDamage(rawDamage, defenderStats.Defense,
                                             stats.CritRate, stats.CritDamage);
+        // ★ 修复：吸血等攻击效果基于减伤后的实际伤害，而不是减伤前
+        AttackResult atkResult = effectRunner.ProcessOnAttack(finalDamage);
         ApplyDamage(finalDamage, atkResult, defResult, defenderStats);
 
         return new CombatResult
@@ -216,7 +218,7 @@ public class CombatSystem : NetworkBehaviour
             finalDamage  = finalDamage,
             selfHeal     = atkResult.selfHeal,
             reflectDamage = defResult.reflectDamage,
-            targetDead   = defenderStats.CurrentHp <= 0
+            targetDead   = defenderStats.IsDead
         };
     }
 
@@ -231,13 +233,18 @@ public class CombatSystem : NetworkBehaviour
     void ApplyDamage(float damage, AttackResult atkResult,
                      DefendResult defResult, PlayerStats defenderStats)
     {
-        defenderStats.CurrentHp -= (int)damage;
+        bool targetWasAlive = !defenderStats.IsDead;   // ★ 记录这一击前是否存活
+
+        defenderStats.ChangeHp(-(int)damage);
         if (atkResult.selfHeal > 0)
-            stats.CurrentHp += (int)atkResult.selfHeal;
+            stats.ChangeHp((int)atkResult.selfHeal);
         if (defResult.reflectDamage > 0)
-            stats.CurrentHp -= (int)defResult.reflectDamage;
-        if (defenderStats.CurrentHp <= 0)
-            stats.CurrentHp += (int)effectRunner.ProcessOnKill();
+            stats.ChangeHp(-(int)defResult.reflectDamage); 
+
+        // ★ 修复：只有「这一击把目标从存活打成死亡」时才触发一次击杀回血，
+        //        避免对已死目标反复回血
+        if (targetWasAlive && defenderStats.IsDead)
+            stats.ChangeHp((int)effectRunner.ProcessOnKill());
     }
 
     Transform GetClosestTarget(Collider[] hits)
@@ -251,9 +258,7 @@ public class CombatSystem : NetworkBehaviour
         }
         return best;
     }
-
-    [ClientRpc]
-    void SyncDamageClientRpc(NetworkObjectReference targetRef, float damage) { }
+    
 }
 
 public struct CombatResult

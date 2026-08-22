@@ -1,11 +1,14 @@
 // Assets/Scripts/Player/PlayerStats.cs
+
+using System;
+using Unity.Netcode;
 using UnityEngine;
 
 /// <summary>
 /// 玩家属性汇总器 —— 基础属性 + 装备加成 = 最终属性
 /// 挂在 Player 预制体上，与 Equipment 同级
 /// </summary>
-public class PlayerStats : MonoBehaviour
+public class PlayerStats : NetworkBehaviour
 {
     // ===== 基础属性 =====
     [Header("基础属性")]
@@ -19,9 +22,15 @@ public class PlayerStats : MonoBehaviour
     [SerializeField] private float baseCritDamage = 1.5f;
 
     // ===== 运行时状态 =====
-    [Header("当前状态")]
-    [SerializeField] private int currentHp;
-    [SerializeField] private int currentMp;
+    [Header("当前状态")] 
+    private NetworkVariable<int> currentHp = new NetworkVariable<int>(
+        100,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server);
+    private NetworkVariable<int> currentMp=new NetworkVariable<int>(
+        50,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server);
 
     // ===== 缓存 =====
     private Equipment equipment;
@@ -29,6 +38,12 @@ public class PlayerStats : MonoBehaviour
 
     // ===== 事件 =====
     public System.Action OnStatsChanged;
+    public System.Action OnDeath;   // 血量首次归零时触发一次
+
+    // ===== 死亡状态 =====
+    public int CurrentHp=>currentHp.Value;
+    public int CurrentMp=>currentMp.Value;
+    public bool IsDead => currentHp.Value <= 0;
 
     // ===== 最终属性（只读）=====
     public int Attack         => finalAttributes.attack;
@@ -40,34 +55,6 @@ public class PlayerStats : MonoBehaviour
     public float CritRate     => finalAttributes.critRate;
     public float CritDamage   => finalAttributes.critDamage;
 
-    public int CurrentHp
-    {
-        get => currentHp;
-        set
-        {
-            int clamped = Mathf.Clamp(value, 0, MaxHp);
-            if (currentHp != clamped)
-            {
-                currentHp = clamped;
-                OnStatsChanged?.Invoke();
-            }
-        }
-    }
-
-    public int CurrentMp
-    {
-        get => currentMp;
-        set
-        {
-            int clamped = Mathf.Clamp(value, 0, MaxMp);
-            if (currentMp != clamped)
-            {
-                currentMp = clamped;
-                OnStatsChanged?.Invoke();
-            }
-        }
-    }
-
     // ===== 初始化 =====
     void Awake()
     {
@@ -76,13 +63,18 @@ public class PlayerStats : MonoBehaviour
         {
             Debug.LogError("[PlayerStats] 未找到 Equipment 组件！请确保挂在同一 GameObject 上");
         }
+        currentHp.OnValueChanged += OnHpChanged;   // 本地+联机都订阅
+        currentMp.OnValueChanged += OnMPChanged;
     }
 
     void Start()
     {
         Recalculate();
-        currentHp = MaxHp;
-        currentMp = MaxMp;
+        if (!IsSpawned)
+        {
+            currentHp.Value = MaxHp;
+            currentMp.Value = MaxMp;
+        }
 
         if (equipment != null)
             equipment.OnEquipmentChanged += OnEquipmentChanged;
@@ -91,10 +83,35 @@ public class PlayerStats : MonoBehaviour
 
     void OnDestroy()
     {
+        currentHp.OnValueChanged -= OnHpChanged;   // 从 OnNetworkDespawn 挪到这里
+        currentMp.OnValueChanged -= OnMPChanged;
         if (equipment != null)
             equipment.OnEquipmentChanged -= OnEquipmentChanged;
     }
 
+    public override void OnNetworkSpawn()
+    {
+        if (IsServer)
+        {
+            Recalculate();
+            currentHp.Value = MaxHp;
+            currentMp.Value = MaxMp;
+        }
+    }
+
+    private void OnHpChanged(int prev, int next)
+    {
+        OnStatsChanged?.Invoke();
+        if (prev > 0 && next <= 0)
+        {
+            OnDeath?.Invoke();
+        }
+    }
+
+    void OnMPChanged(int prev, int next)
+    {
+        OnStatsChanged?.Invoke();
+    }
     // ===== 属性重算 =====
     public void Recalculate()
     {
@@ -115,6 +132,14 @@ public class PlayerStats : MonoBehaviour
             equipAttr = equipment.GetTotalAttributes();
 
         finalAttributes = baseAttr + equipAttr;
+        if (!IsSpawned || IsServer)
+        {
+            currentHp.Value = Mathf.Clamp(currentHp.Value, 0, MaxHp);
+            currentMp.Value = Mathf.Clamp(currentMp.Value, 0, MaxMp);
+        }
+
+        // ★ 修复：MaxHp/MaxMp 变化后重新钳制当前值，防止脱装备后超上限
+
         Debug.Log($"[PlayerStats] 重算完成: ATK={Attack} DEF={Defense} HP={MaxHp} SPD={MoveSpeed}");
         OnStatsChanged?.Invoke();
     }
@@ -125,6 +150,17 @@ public class PlayerStats : MonoBehaviour
         Recalculate();
     }
 
+    public void ChangeHp(int delta)
+    {
+        if (IsSpawned&&!IsServer) return;
+        currentHp.Value=Mathf.Clamp(currentHp.Value+delta,0,MaxHp);
+    }
+
+    public void ChangeMp(int delta)
+    {
+        if (IsSpawned&&!IsServer) return;
+        currentMp.Value=Mathf.Clamp(currentMp.Value+delta,0,MaxMp);
+    }
     // ===== 便捷方法 =====
     public EquipAttributes GetFinalAttributes() => finalAttributes;
 }

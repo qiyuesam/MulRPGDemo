@@ -37,7 +37,14 @@ public class PlayerMotor : NetworkBehaviour
     void FixedUpdate()
     {
         if(IsSpawned&&!IsOwner) return;
-        
+
+        // ★ 死亡后停止移动和跳跃（重力照常，让尸体落地）
+        if (playerStats != null && playerStats.IsDead)
+        {
+            InputDirection = Vector3.zero;
+            JumpRequest = false;
+        }
+
         ApplyGravity();
         ApplyJump();
         PerformMove();
