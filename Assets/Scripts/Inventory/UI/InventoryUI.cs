@@ -147,4 +147,13 @@ void Awake()
             if (!eq.IsSpawned || eq.IsOwner) return eq;
         return null;
     }
+
+    void OnDestroy()
+    {
+        if (equipment != null)
+            equipment.OnEquipmentChanged -= RefreshEquipmentSlots;
+        provider?.UnbindChanged(RefreshAll);
+        if (Instance == this)
+            Instance = null;
+    }
 }

@@ -40,12 +40,15 @@ public class EffectRunner : MonoBehaviour
     {
         if (equipment != null)
             equipment.OnEquipmentChanged -= OnEquipmentChanged;
+        if (dotRoutine != null)
+            StopCoroutine(dotRoutine);
     }
 
     // ===== 装备变更时重建缓存 =====
     private void OnEquipmentChanged()
     {
         RebuildCache();
+        playerStats?.Recalculate();
     }
 
     /// <summary>
@@ -79,6 +82,7 @@ private void RebuildCache()
             switch (effect.type)
             {
                 case EffectData.EffectType.FireDamage:
+                case EffectData.EffectType.BonusDamage:
                 case EffectData.EffectType.Lifesteal:
                     attackList.Add(effect);
                     break;
@@ -135,6 +139,11 @@ private void RebuildCache()
                     }
                     break;
 
+                case EffectData.EffectType.BonusDamage:
+                    // value1 = 每次命中的一次性附加伤害
+                    result.extraDamage += Mathf.Max(0f, effect.value1);
+                    break;
+
                 case EffectData.EffectType.Lifesteal:
                     // value1 = 吸血比例, 如 0.15 = 15%
                     result.selfHeal += damageDealt * effect.value1;
@@ -143,6 +152,36 @@ private void RebuildCache()
         }
 
         return result;
+    }
+
+    private Coroutine dotRoutine;
+
+    /// <summary>服务器权威的持续伤害。再次触发时刷新持续时间，避免无限叠加协程。</summary>
+    public void ApplyDamageOverTime(float damagePerTick, float duration, float tickInterval = 1f)
+    {
+        if (playerStats == null || damagePerTick <= 0f || duration <= 0f)
+            return;
+        if (playerStats.IsSpawned && !playerStats.IsServer)
+            return;
+
+        if (dotRoutine != null)
+            StopCoroutine(dotRoutine);
+        dotRoutine = StartCoroutine(DamageOverTimeRoutine(
+            damagePerTick, duration, Mathf.Max(0.1f, tickInterval)));
+    }
+
+    private IEnumerator DamageOverTimeRoutine(float damagePerTick, float duration, float tickInterval)
+    {
+        float elapsed = 0f;
+        while (elapsed < duration && playerStats != null && !playerStats.IsDead)
+        {
+            yield return new WaitForSeconds(tickInterval);
+            elapsed += tickInterval;
+            if (playerStats == null || playerStats.IsDead)
+                break;
+            playerStats.ChangeHp(-Mathf.Max(1, Mathf.RoundToInt(damagePerTick)));
+        }
+        dotRoutine = null;
     }
 
     // ================================================================

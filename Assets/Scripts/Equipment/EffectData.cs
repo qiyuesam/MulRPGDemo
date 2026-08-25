@@ -8,6 +8,7 @@ public class EffectData : ScriptableObject
     public enum EffectType
     {
         FireDamage,      // 攻击概率点燃
+        BonusDamage,     // 攻击附加一次性伤害
         Lifesteal,       // 攻击偷取生命
         SpeedBoost,      // 常驻移速加成
         ThornArmor,      // 被击中反伤

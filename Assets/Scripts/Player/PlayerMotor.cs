@@ -78,7 +78,7 @@ public class PlayerMotor : NetworkBehaviour
         Vector3 dir = InputDirection;
 
         // ★ 攻击时禁止水平移动（重力照常），动画播完自动解除
-        if (combat != null && combat.ComboIndex > 0)
+        if (combat != null && combat.IsAttackMovementLocked)
             dir = Vector3.zero;
 
         if (dir != Vector3.zero)

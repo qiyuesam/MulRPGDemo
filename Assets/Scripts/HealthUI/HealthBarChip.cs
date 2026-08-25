@@ -39,11 +39,14 @@ public class HealthBarChip : MonoBehaviour
         // ★ 下落（累加，不是赋值）
         transform.localPosition += Vector3.down * fallSpeed * Time.deltaTime;
 
-        // ★ 淡出：fadeDuration 秒内降到透明
+        // ★ 淡出只发生在生命周期末段，而不是启用后立即消失
         if (chipImage != null)
         {
             float elapsed = lifetime - timer;                 // 已存活时间
-            float alpha = 1f - Mathf.Clamp01(elapsed / fadeDuration);
+            float fadeStart = Mathf.Max(0f, lifetime - fadeDuration);
+            float alpha = elapsed <= fadeStart
+                ? 1f
+                : 1f - Mathf.Clamp01((elapsed - fadeStart) / Mathf.Max(0.001f, fadeDuration));
             Color c = chipImage.color;
             c.a = alpha;
             chipImage.color = c;

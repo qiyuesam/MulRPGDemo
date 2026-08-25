@@ -15,17 +15,17 @@ MonoBehaviour:
   itemId: 10
   itemName: "\u94BB\u77F3\u7532"
   itemDescription: "\u7480\u74A8\u94BB\u77F3\u9576\u5D4C\u7684\u5962\u534E\u80F8\u7532"
-  itemIcon: {fileID: 0}
+  itemIcon: {fileID: 21300000, guid: 569c86a20b9142748afe1e0975f53375, type: 3}
   type: 1
   maxStack: 1
   itemPrefab: {fileID: 0}
-  equipSlot: 0
+  equipSlot: 2
   attributes:
-    attack: 20
-    defense: 60
-    maxHp: 0
-    maxMp: 2
-    moveSpeedBonus: 0
+    attack: 0
+    defense: 20
+    maxHp: 60
+    maxMp: 0
+    moveSpeedBonus: 2
     attackSpeedBonus: 0
     critRate: 0
     critDamage: 0

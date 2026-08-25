@@ -9,13 +9,13 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 0}
+  m_Script: {fileID: 11500000, guid: 081a40e0d20411a41a85bb66c8a9e38f, type: 3}
   m_Name: item11
-  m_EditorClassIdentifier: Assembly-CSharp::MaterialData
+  m_EditorClassIdentifier: 
   itemId: 11
   itemName: "\u94C1\u77FF\u77F3"
   itemDescription: "\u542B\u94C1\u91CF\u4E0D\u9519\u7684\u77FF\u77F3\u53EF\u63D0\u70BC\u953B\u9020"
-  itemIcon: {fileID: 0}
+  itemIcon: {fileID: 21300000, guid: 569c86a20b9142748afe1e0975f53375, type: 3}
   type: 3
   maxStack: 999
   itemPrefab: {fileID: 0}

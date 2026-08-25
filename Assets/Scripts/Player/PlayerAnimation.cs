@@ -11,10 +11,7 @@ public class PlayerAnimation : NetworkBehaviour
         writePerm: NetworkVariableWritePermission.Owner
     );
 
-    // ★ 新增：ComboIndex 网络同步（与 Speed 同模式：Owner 写入，其他人读取）
-    private NetworkVariable<int> networkComboIndex = new NetworkVariable<int>(
-        writePerm: NetworkVariableWritePermission.Owner
-    );
+    private int lastAttackSequence = -1;
 
     void Awake()
     {
@@ -31,20 +28,20 @@ public class PlayerAnimation : NetworkBehaviour
     {
         if (motor == null || animator == null) return;
 
-        // ═══ 攻击动画同步 ═══
-        if (!IsSpawned)
+        // 攻击段号和序列都由服务器维护。序列号确保同一段号再次
+        // 出现时仍会重播，而不是依赖一个可能没有变化的 int 参数。
+        if (combat != null)
         {
-            // 本地模式：直接读 CombatSystem 的值
-            if (combat != null)
-                animator.SetInteger("ComboIndex", combat.ComboIndex);
-        }
-        else
-        {
-            // 联机模式：Owner 写 → NetworkVariable 同步 → 所有人读
-            if (IsOwner && combat != null)
-                networkComboIndex.Value = combat.ComboIndex;
-
-            animator.SetInteger("ComboIndex", networkComboIndex.Value);
+            int comboIndex = combat.ComboIndex;
+            int sequence = combat.AttackSequence;
+            animator.speed = comboIndex > 0 ? combat.AttackPlaybackSpeed : 1f;
+            animator.SetInteger("ComboIndex", comboIndex);
+            if (comboIndex > 0 && sequence != lastAttackSequence)
+            {
+                lastAttackSequence = sequence;
+                int stateHash = Animator.StringToHash($"Attack0{comboIndex}");
+                animator.CrossFade(stateHash, 0.08f, 0, 0f);
+            }
         }
 
         // ═══ 移动动画 ═══

@@ -9,6 +9,8 @@ public class Equipment : NetworkBehaviour
     public event System.Action OnEquipmentChanged;
 
     private const string SAVE_FILE = "player_equipment.sav";
+    private const float MIN_REQUEST_INTERVAL = 0.05f;
+    private double nextRequestTime;
 
     // ================================================================
     //  生命周期
@@ -36,6 +38,8 @@ public override void OnNetworkSpawn()
     {
         // 移除 Start 中可能注册的本地 AutoSave
         data.OnChanged -= AutoSave;
+        data.OnChanged -= OnServerDataChanged;
+        data.OnChanged -= OnClientDataChanged;
 
         if (IsServer)
             data.OnChanged += OnServerDataChanged;
@@ -48,8 +52,10 @@ public override void OnNetworkSpawn()
 
     public override void OnNetworkDespawn()
     {
-        if (IsOwner)
+        if (IsOwner && (IsServer || NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening))
             SaveToDisk();
+        data.OnChanged -= OnServerDataChanged;
+        data.OnChanged -= OnClientDataChanged;
         base.OnNetworkDespawn();
     }
 
@@ -85,8 +91,6 @@ public override void OnNetworkSpawn()
         if (!IsSpawned || IsServer)
         {
             ApplyEquip(item, itemId);
-            if (IsSpawned && IsServer)
-                SyncToClientsClientRpc(Serialize());
         }
         else
         {
@@ -102,8 +106,6 @@ public override void OnNetworkSpawn()
         if (!IsSpawned || IsServer)
         {
             removedId = ApplyUnequip(slotType);
-            if (IsSpawned && IsServer)
-                SyncToClientsClientRpc(Serialize());
         }
         else
         {
@@ -119,9 +121,7 @@ public override void OnNetworkSpawn()
     {
         if (!IsSpawned || IsServer)
         {
-            data.ApplyPreset(presetIds);
-            if (IsSpawned && IsServer)
-                SyncToClientsClientRpc(Serialize());
+            data.ApplyPreset(itemDatabase, presetIds);
         }
         else
         {
@@ -229,8 +229,10 @@ public override void OnNetworkSpawn()
         string json = SaveManager.Load(SAVE_FILE);
         if (!string.IsNullOrEmpty(json))
         {
-            data.FromJson(json);
-            Debug.Log("[Equipment] 本地装备已从存档恢复");
+            if (data.TryFromJson(json, itemDatabase, out string error))
+                Debug.Log("[Equipment] 本地装备已从存档恢复");
+            else
+                Debug.LogWarning($"[Equipment] 忽略无效本地存档: {error}");
         }
     }
 
@@ -245,19 +247,16 @@ public override void OnNetworkSpawn()
 
         if (IsServer)
         {
-            data.FromJson(json);
-            Debug.Log($"[Equipment] Host 装备已从存档恢复 (Owner={OwnerClientId})");
+            if (data.TryFromJson(json, itemDatabase, out string error))
+                Debug.Log($"[Equipment] Host 装备已从存档恢复 (Owner={OwnerClientId})");
+            else
+                Debug.LogWarning($"[Equipment] Host 存档无效，已忽略: {error}");
         }
         else
         {
-            data.FromJson(json);
-            UploadSaveDataServerRpc(json);
+            Debug.Log("[Equipment] 客户端忽略本地存档，等待服务器权威装备");
         }
 
-        OnEquipmentChanged?.Invoke();
-
-        if (IsServer)
-            SyncToClientsClientRpc(Serialize());
     }
 
     private void AutoSave()   => SaveManager.Save(SAVE_FILE, data.ToJson());
@@ -272,32 +271,27 @@ public override void OnNetworkSpawn()
     [ServerRpc(RequireOwnership = true)]
     private void EquipFromChestServerRpc(int itemId)
     {
-        var item = itemDatabase.GetItem(itemId);
-        if (item == null) return;
+        if (!CanProcessRequest() || itemDatabase == null)
+            return;
+        ItemData item = itemDatabase.GetItem(itemId);
+        if (item is not IEquippable)
+            return;
         ApplyEquip(item, itemId);
-        SyncToClientsClientRpc(Serialize());
     }
 
     [ServerRpc(RequireOwnership = true)]
     private void UnequipSlotServerRpc(int slotTypeInt)
     {
+        if (!CanProcessRequest() || !System.Enum.IsDefined(typeof(EquipSlotType), slotTypeInt))
+            return;
         ApplyUnequip((EquipSlotType)slotTypeInt);
-        SyncToClientsClientRpc(Serialize());
     }
 
     [ServerRpc(RequireOwnership = true)]
     private void ApplyPresetServerRpc(int[] presetIds)
     {
-        data.ApplyPreset(presetIds);
-        SyncToClientsClientRpc(Serialize());
-    }
-
-    [ServerRpc(RequireOwnership = true)]
-    private void UploadSaveDataServerRpc(string json)
-    {
-        data.FromJson(json);
-        SyncToClientsClientRpc(Serialize());
-        OnEquipmentChanged?.Invoke();
+        if (!CanProcessRequest()) return;
+        data.ApplyPreset(itemDatabase, presetIds);
     }
 
     // ================================================================
@@ -307,24 +301,19 @@ public override void OnNetworkSpawn()
     [ClientRpc]
     private void SyncToClientsClientRpc(string json)
     {
-        data.FromJson(json);
-        OnEquipmentChanged?.Invoke();
+        if (data.TryFromJson(json, itemDatabase, out string error, notify: false))
+            OnEquipmentChanged?.Invoke();
+        else
+            Debug.LogError($"[Equipment] 收到无效服务器快照: {error}");
     }
 
     private string Serialize() => data.ToJson();
 
-    // ================================================================
-    //  调试热键
-    // ================================================================
-
-void Update()
+    private bool CanProcessRequest()
     {
-        if (IsSpawned && !IsOwner) return;
-
-#if UNITY_EDITOR
-        if (Input.GetKeyDown(KeyCode.Alpha7)) EquipFromChest(5);
-        if (Input.GetKeyDown(KeyCode.Alpha8)) EquipFromChest(0);
-        if (Input.GetKeyDown(KeyCode.Alpha9)) data.ClearAll();
-#endif
+        double now = Time.unscaledTimeAsDouble;
+        if (now < nextRequestTime) return false;
+        nextRequestTime = now + MIN_REQUEST_INTERVAL;
+        return true;
     }
 }

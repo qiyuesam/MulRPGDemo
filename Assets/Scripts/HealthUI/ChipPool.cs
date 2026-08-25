@@ -31,11 +31,10 @@ public class ChipPool : MonoBehaviour
         return chip;
     }
 
-    void Start() => Bind(FindLocalStats());
-
-    void Update()
+    void OnEnable()
     {
-        if (stats == null) Bind(FindLocalStats());   // 玩家后生成时补找
+        UIManager.LocalPlayerStatsChanged += Bind;
+        Bind(UIManager.Instance != null ? UIManager.Instance.LocalPlayerStats : FindLocalStats());
     }
 
     void Bind(PlayerStats s)
@@ -80,9 +79,11 @@ public class ChipPool : MonoBehaviour
         chip.transform.localPosition = transform.InverseTransformPoint(worldPos);
     }
 
-    void OnDestroy()
+    void OnDisable()
     {
+        UIManager.LocalPlayerStatsChanged -= Bind;
         if (stats != null) stats.OnStatsChanged -= OnHpChanged;
+        stats = null;
     }
 
     PlayerStats FindLocalStats()

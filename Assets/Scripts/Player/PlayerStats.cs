@@ -34,6 +34,7 @@ public class PlayerStats : NetworkBehaviour
 
     // ===== 缓存 =====
     private Equipment equipment;
+    private EffectRunner effectRunner;
     private EquipAttributes finalAttributes;
 
     // ===== 事件 =====
@@ -50,7 +51,8 @@ public class PlayerStats : NetworkBehaviour
     public int Defense        => finalAttributes.defense;
     public int MaxHp          => finalAttributes.maxHp;
     public int MaxMp          => finalAttributes.maxMp;
-    public float MoveSpeed    => baseMoveSpeed + finalAttributes.moveSpeedBonus;
+    public float MoveSpeed    => baseMoveSpeed * (effectRunner != null ? Mathf.Max(0f, effectRunner.SpeedMultiplier) : 1f)
+                                  + finalAttributes.moveSpeedBonus;
     public float AttackSpeed  => baseAttackSpeed + finalAttributes.attackSpeedBonus;
     public float CritRate     => finalAttributes.critRate;
     public float CritDamage   => finalAttributes.critDamage;
@@ -59,6 +61,7 @@ public class PlayerStats : NetworkBehaviour
     void Awake()
     {
         equipment = GetComponent<Equipment>();
+        effectRunner = GetComponent<EffectRunner>();
         if (equipment == null)
         {
             Debug.LogError("[PlayerStats] 未找到 Equipment 组件！请确保挂在同一 GameObject 上");

@@ -17,45 +17,8 @@ public class ArmorData : ItemData, IEquippable
     void OnValidate()
     {
         type = itemType.Equipment;
+        maxStack = 1;
+        if (equipSlot == EquipSlotType.Weapon)
+            equipSlot = EquipSlotType.Head;
     }
-}
-[CreateAssetMenu(fileName = "New Weapon", menuName = "Item/Weapon")]
-public class WeaponData : ItemData, IEquippable
-{
-    [Header("武器属性")]
-    public EquipAttributes attributes;
-    public EffectData[] effects;
-    // ★ 新增：连段配置
-    [Header("连段")]
-    public int maxCombo = 5;                    // 几种武器各有几段
-    public float comboWindowStart = 0.7f;       // 百分之多少开窗口
-
-    // AnimatorOverrideController 引用，换武器时切换动画集
-    public AnimatorOverrideController animatorOverride;
-
-    // IEquippable 实现
-    public EquipSlotType EquipSlot => EquipSlotType.Weapon;  // 武器锁死 Weapon 槽
-    public EquipAttributes Attributes => attributes;
-    public EffectData[] Effects => effects;
-
-    // Awake 时自动修正 type
-    void OnValidate()
-    {
-        type = itemType.Weapon;
-    }
-}
-[CreateAssetMenu(fileName = "New Consumable", menuName = "Item/Consumable")]
-public class ConsumableData : ItemData
-{
-    void OnValidate() { type = itemType.Consumable; }
-}
-[CreateAssetMenu(fileName = "New Material", menuName = "Item/Material")]
-public class MaterialData : ItemData
-{
-    void OnValidate() { type = itemType.Material; }
-}
-[CreateAssetMenu(fileName = "New Quest Item", menuName = "Item/Quest")]
-public class QuestData : ItemData
-{
-    void OnValidate() { type = itemType.Quest; }
 }

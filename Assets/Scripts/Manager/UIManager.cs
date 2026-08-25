@@ -4,6 +4,7 @@ using UnityEngine.UI;
 public class UIManager : MonoBehaviour
 {
     public static UIManager Instance;
+    public static event System.Action<PlayerStats> LocalPlayerStatsChanged;
 
     [Header("面板引用")]
     [SerializeField] private GameObject inventoryPanel;
@@ -14,9 +15,15 @@ public class UIManager : MonoBehaviour
 
     // ★ 新增：缓存的 Inventory 引用
     private Inventory playerInventory;
+    public PlayerStats LocalPlayerStats { get; private set; }
 
     void Awake()
     {
+        if (Instance != null && Instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
         Instance = this;
     }
 
@@ -26,21 +33,24 @@ public class UIManager : MonoBehaviour
         CachePlayerInventory();
     }
 
-    void Update()
-    {
-        if (Input.GetKeyDown(KeyCode.Tab) || Input.GetKeyDown(KeyCode.B))
-            ToggleInventory();
-    }
-
     // ★ 新增：缓存方法，外部（GameManager）也可以调用
     public void OnPlayerSpawned(Inventory inv)
     {
+        if (inv == null) return;
         playerInventory = inv;
+        LocalPlayerStats = inv.GetComponent<PlayerStats>();
+        QuestUI.Instance?.Bind(inv.GetComponent<QuestLog>());
+        LocalPlayerStatsChanged?.Invoke(LocalPlayerStats);
     }
 
-    public void OnPlayerDespawned()
+    public void OnPlayerDespawned(Inventory inv = null)
     {
+        if (inv != null && playerInventory != inv)
+            return;
         playerInventory = null;
+        LocalPlayerStats = null;
+        QuestUI.Instance?.Bind(null);
+        LocalPlayerStatsChanged?.Invoke(null);
         if (isInventoryOpen)
         {
             // 玩家消失时自动关闭背包
@@ -60,12 +70,24 @@ public class UIManager : MonoBehaviour
             if (!inv.IsSpawned || inv.IsOwner)
             {
                 playerInventory = inv;
+                LocalPlayerStats = inv.GetComponent<PlayerStats>();
+                LocalPlayerStatsChanged?.Invoke(LocalPlayerStats);
                 break;
             }
         }
     }
 
-    void ToggleInventory()
+    public void HandleEscape()
+    {
+        if (QuestUI.Instance != null && QuestUI.Instance.IsVisible)
+        {
+            QuestUI.Instance.Hide();
+            return;
+        }
+        ToggleInventory();
+    }
+
+    public void ToggleInventory()
     {
         // ★ 改：直接用缓存引用判断，O(1) 代替 O(n)
         if (playerInventory == null)
@@ -89,8 +111,19 @@ public class UIManager : MonoBehaviour
 
     void UpdateCursor()
     {
-        bool anyPanelOpen = isInventoryOpen;
+        bool anyPanelOpen = isInventoryOpen ||
+                            (QuestUI.Instance != null && QuestUI.Instance.IsVisible);
         Cursor.visible = anyPanelOpen;
         Cursor.lockState = anyPanelOpen ? CursorLockMode.None : CursorLockMode.Locked;
+    }
+
+    public void RefreshCursor() => UpdateCursor();
+
+    void OnDestroy()
+    {
+        if (Instance != this) return;
+        LocalPlayerStatsChanged?.Invoke(null);
+        LocalPlayerStatsChanged = null;
+        Instance = null;
     }
 }

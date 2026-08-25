@@ -12,6 +12,8 @@ public class ItemDatabase : ScriptableObject
     public void Init()
     {
         lookup = new Dictionary<int, ItemData>();
+        if (items == null)
+            items = new List<ItemData>();
         foreach (var item in items)
         {
             if(item!=null)
@@ -21,20 +23,30 @@ public class ItemDatabase : ScriptableObject
 
     public ItemData GetItem(int id)
     {
+        if (id <= 0) return null;
         if(lookup==null)Init();
         lookup.TryGetValue(id, out ItemData item);
         return item;
     }
+
+    public void Invalidate() => lookup = null;
     
 
     private void OnValidate()
     {
         var ids=new HashSet<int>();
+        if (items == null)
+        {
+            items = new List<ItemData>();
+            lookup = null;
+            return;
+        }
         foreach (var item in items)
         {
             if(item==null) continue;
             if(!ids.Add(item.itemId))
                 Debug.LogError($"物品 ID 重复{item.itemId}({item.itemName})");
         }
+        lookup = null;
     }
 }

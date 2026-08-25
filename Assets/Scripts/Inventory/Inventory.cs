@@ -9,6 +9,12 @@ public class Inventory : NetworkBehaviour
     public event System.Action OnInventoryChanged;
 
     private const string SAVE_FILE = "player_inventory.sav";
+    private const float MIN_REQUEST_INTERVAL = 0.05f;
+    private double nextRequestTime;
+    private PlayerStats playerStats;
+    private bool questEventsBound;
+
+    public ItemDatabase Database => itemDatabase;
 
     // ================================================================
     //  生命周期
@@ -17,6 +23,7 @@ public class Inventory : NetworkBehaviour
     void Awake()
     {
         data.Initialize();
+        playerStats = GetComponent<PlayerStats>();
     }
 
 void Start()
@@ -30,6 +37,7 @@ void Start()
         {
             LoadFromDisk();
             data.OnChanged += AutoSave;
+            BindQuestEvents();
         }
     }
 
@@ -37,11 +45,15 @@ public override void OnNetworkSpawn()
     {
         // 移除 Start 中可能注册的本地 AutoSave，避免与网络回调双重触发
         data.OnChanged -= AutoSave;
+        data.OnChanged -= OnServerDataChanged;
+        data.OnChanged -= OnClientDataChanged;
 
         if (IsServer)
             data.OnChanged += OnServerDataChanged;
         else
             data.OnChanged += OnClientDataChanged;
+
+        BindQuestEvents();
 
         if (IsOwner)
             LoadAndApplySave();
@@ -49,9 +61,17 @@ public override void OnNetworkSpawn()
 
     public override void OnNetworkDespawn()
     {
-        if (IsOwner)
+        if (IsOwner && (IsServer || NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening))
             SaveToDisk();
+        data.OnChanged -= OnServerDataChanged;
+        data.OnChanged -= OnClientDataChanged;
+        UnbindQuestEvents();
         base.OnNetworkDespawn();
+    }
+
+    void OnDestroy()
+    {
+        UnbindQuestEvents();
     }
 
     // ================================================================
@@ -72,6 +92,48 @@ public override void OnNetworkSpawn()
         OnInventoryChanged?.Invoke();
     }
 
+    private void BindQuestEvents()
+    {
+        if (questEventsBound) return;
+        data.OnItemAdded += OnItemAdded;
+        data.OnItemRemoved += OnItemRemoved;
+        data.OnItemUsed += OnItemUsed;
+        questEventsBound = true;
+    }
+
+    private void UnbindQuestEvents()
+    {
+        if (!questEventsBound) return;
+        data.OnItemAdded -= OnItemAdded;
+        data.OnItemRemoved -= OnItemRemoved;
+        data.OnItemUsed -= OnItemUsed;
+        questEventsBound = false;
+    }
+
+    private void OnItemAdded(int itemId, int count)
+    {
+        if (!IsSpawned || IsServer)
+            QuestManager.Publish(QuestEvent.ItemAdded(gameObject, itemId, count));
+    }
+
+    private void OnItemUsed(int itemId)
+    {
+        if (!IsSpawned || IsServer)
+            QuestManager.Publish(QuestEvent.ItemUsed(gameObject, itemId));
+    }
+
+    private void OnItemRemoved(int itemId, int count)
+    {
+        if (!IsSpawned || IsServer)
+            QuestManager.Publish(new QuestEvent
+            {
+                type = QuestEventType.ItemRemoved,
+                actor = gameObject,
+                itemId = itemId,
+                amount = count
+            });
+    }
+
     // ================================================================
     //  存档/读档
     // ================================================================
@@ -82,8 +144,10 @@ public override void OnNetworkSpawn()
         string json = SaveManager.Load(SAVE_FILE);
         if (!string.IsNullOrEmpty(json))
         {
-            data.FromJson(json);
-            Debug.Log($"[Inventory] 本地背包已从存档恢复");
+            if (data.TryFromJson(json, itemDatabase, out string error))
+                Debug.Log("[Inventory] 本地背包已从存档恢复");
+            else
+                Debug.LogWarning($"[Inventory] 忽略无效本地存档: {error}");
         }
         else
         {
@@ -107,29 +171,17 @@ public override void OnNetworkSpawn()
 
         if (IsServer)
         {
-            data.FromJson(json);
-            Debug.Log($"[Inventory] Host 背包已从存档恢复 (Owner={OwnerClientId})");
+            if (data.TryFromJson(json, itemDatabase, out string error))
+                Debug.Log($"[Inventory] Host 背包已从存档恢复 (Owner={OwnerClientId})");
+            else
+                Debug.LogWarning($"[Inventory] Host 存档无效，已忽略: {error}");
         }
         else
         {
-            data.FromJson(json);
-            Debug.Log($"[Inventory] 客户端本地加载存档，同时上传服务器");
-            UploadSaveDataServerRpc(json);
+            // 多人模式下客户端存档不是权威来源，等待服务器快照。
+            Debug.Log("[Inventory] 客户端忽略本地存档，等待服务器权威背包");
         }
 
-        OnInventoryChanged?.Invoke();
-
-        if (IsServer)
-            SyncToClientsClientRpc(Serialize());
-    }
-
-    [ServerRpc(RequireOwnership = true)]
-    private void UploadSaveDataServerRpc(string json)
-    {
-        Debug.Log($"[Inventory] 服务器收到客户端 {OwnerClientId} 的存档上传");
-        data.FromJson(json);
-        SyncToClientsClientRpc(Serialize());
-        OnInventoryChanged?.Invoke();
     }
 
     private void AutoSave()
@@ -157,7 +209,7 @@ public override void OnNetworkSpawn()
         }
 
         if (IsClient && !IsServer)
-            AddItemServerRpc(itemId, count);
+            Debug.LogWarning("[Inventory] 客户端不能直接授予物品，必须由服务器玩法逻辑发放");
         else
             data.AddItem(itemDatabase, itemId, count);
     }
@@ -180,14 +232,14 @@ public override void OnNetworkSpawn()
     {
         if (!IsSpawned)
         {
-            data.UseItem(itemDatabase, slotIndex);
+            data.UseItem(itemDatabase, slotIndex, playerStats);
             return;
         }
 
         if (IsClient && !IsServer)
             UseItemServerRpc(slotIndex);
         else
-            data.UseItem(itemDatabase, slotIndex);
+            data.UseItem(itemDatabase, slotIndex, playerStats);
     }
 
     public void TryRemoveItem(int slotIndex, int count)
@@ -209,9 +261,6 @@ public override void OnNetworkSpawn()
         if (!IsSpawned || IsServer)
         {
             data.Clear();
-            // 如果是联机模式，同步给所有客户端
-            if (IsSpawned && IsServer)
-                SyncToClientsClientRpc(Serialize());
         }
         else
         {
@@ -233,25 +282,32 @@ public override void OnNetworkSpawn()
     // ================================================================
 
     [ServerRpc(RequireOwnership = true)]
-    private void AddItemServerRpc(int itemId, int count)
-        => data.AddItem(itemDatabase, itemId, count);
-
-    [ServerRpc(RequireOwnership = true)]
     private void SwapSlotsServerRpc(int from, int to)
-        => data.SwapSlots(from, to);
+    {
+        if (!CanProcessRequest()) return;
+        data.SwapSlots(from, to);
+    }
 
     [ServerRpc(RequireOwnership = true)]
     private void UseItemServerRpc(int slotIndex)
-        => data.UseItem(itemDatabase, slotIndex);
+    {
+        if (!CanProcessRequest()) return;
+        data.UseItem(itemDatabase, slotIndex, playerStats);
+    }
 
     [ServerRpc(RequireOwnership = true)]
     private void RemoveItemServerRpc(int slotIndex, int count)
-        => data.RemoveItem(slotIndex, count);
+    {
+        if (!CanProcessRequest() || count <= 0) return;
+        InventorySlot slot = data.GetSlot(slotIndex);
+        if (slot.IsEmpty || count > slot.count) return;
+        data.RemoveItem(slotIndex, count);
+    }
     [ServerRpc(RequireOwnership = true)]
     private void ClearAllItemsServerRpc()
     {
+        if (!CanProcessRequest()) return;
         data.Clear();
-        SyncToClientsClientRpc(Serialize());
     }
 
     // ================================================================
@@ -261,25 +317,20 @@ public override void OnNetworkSpawn()
     [ClientRpc]
     private void SyncToClientsClientRpc(string json)
     {
-        data.FromJson(json);
-        OnInventoryChanged?.Invoke();
+        if (data.TryFromJson(json, itemDatabase, out string error,
+                             requireExactSlotCount: true, notify: false))
+            OnInventoryChanged?.Invoke();
+        else
+            Debug.LogError($"[Inventory] 收到无效服务器快照: {error}");
     }
 
     private string Serialize() => data.ToJson();
 
-    // ================================================================
-    //  调试热键
-    // ================================================================
-
-void Update()
+    private bool CanProcessRequest()
     {
-        if (IsSpawned && !IsOwner) return;
-
-#if UNITY_EDITOR
-        if (Input.GetKeyDown(KeyCode.Alpha1)) TryAddItem(1, 1);
-        if (Input.GetKeyDown(KeyCode.Alpha2)) TryAddItem(8, 8);
-        if (Input.GetKeyDown(KeyCode.Alpha3)) { /*...*/ }
-        if (Input.GetKeyDown(KeyCode.Alpha0)) ClearAllItems();
-#endif
+        double now = Time.unscaledTimeAsDouble;
+        if (now < nextRequestTime) return false;
+        nextRequestTime = now + MIN_REQUEST_INTERVAL;
+        return true;
     }
 }

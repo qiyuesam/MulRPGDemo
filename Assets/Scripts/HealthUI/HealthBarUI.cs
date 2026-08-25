@@ -10,15 +10,16 @@ public class HealthBarUI : MonoBehaviour
     
     private PlayerStats stats;
 
-    void Start()
+    void OnEnable()
     {
-        Bind(FindPlayerStats());
+        UIManager.LocalPlayerStatsChanged += Bind;
+        Bind(UIManager.Instance != null ? UIManager.Instance.LocalPlayerStats : FindPlayerStats());
     }
 
-    void Update()
+    void OnDisable()
     {
-        if (stats == null)
-            Bind(FindPlayerStats());
+        UIManager.LocalPlayerStatsChanged -= Bind;
+        Bind(null);
     }
     public void Bind(PlayerStats s)
     {
@@ -44,11 +45,6 @@ public class HealthBarUI : MonoBehaviour
             mpFill.fillAmount=stats.MaxMp>0?(float)stats.CurrentMp/stats.MaxMp:0f;
         }
            
-    }
-
-    void OnDestroy()
-    {
-        if (stats!=null) stats.OnStatsChanged -= Refresh;
     }
 
     PlayerStats FindPlayerStats()
