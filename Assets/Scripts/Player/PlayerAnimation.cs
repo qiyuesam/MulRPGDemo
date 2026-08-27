@@ -47,13 +47,13 @@ public class PlayerAnimation : NetworkBehaviour
         // ═══ 移动动画 ═══
         if (!IsSpawned)
         {
-            animator.SetFloat("Speed", motor.currentSpeed);
+            animator.SetFloat("Vertical Speed", motor.currentSpeed);
             return;
         }
 
         if (IsOwner)
             networkSpeed.Value = motor.currentSpeed;
 
-        animator.SetFloat("Speed", networkSpeed.Value);
+        animator.SetFloat("Vertical Speed", networkSpeed.Value);
     }
 }

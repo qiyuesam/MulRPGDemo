@@ -55,7 +55,7 @@ public class PlayerController : NetworkBehaviour
         if (freeLook != null && camTarget != null)
         {
             freeLook.Follow = camTarget;
-            freeLook.LookAt = transform;
+            freeLook.LookAt = camTarget;
         }
 
         UIManager.Instance?.OnPlayerSpawned(GetComponent<Inventory>());
