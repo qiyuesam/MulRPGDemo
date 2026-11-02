@@ -1,39 +1,27 @@
-// Assets/Scripts/Inventory/UI/InventoryUI.cs（修改后）
-
+// Assets/Scripts/Inventory/UI/InventoryUI.cs
 using UnityEngine;
 
-public class InventoryUI : MonoBehaviour
+public class InventoryUI : UIPanel
 {
-    public static InventoryUI Instance;
-
     [SerializeField] private GameObject panel;
     [SerializeField] private Transform slotContainer;
     [SerializeField] private GameObject slotPrefab;
+
     [Header("装备槽")]
     [SerializeField] private EquipmentSlotUI weaponSlot;
     [SerializeField] private EquipmentSlotUI headSlot;
     [SerializeField] private EquipmentSlotUI chestSlot;
     [SerializeField] private EquipmentSlotUI legsSlot;
     [SerializeField] private EquipmentSlotUI feetSlot;
+
     private Equipment equipment;
-    
-    // ★ 改：Inventory → IInventoryProvider
     private IInventoryProvider provider;
     private InventorySlotUI[] slotUIs;
     private int selectedIndex = -1;
-    private bool isOpen;
 
-void Awake()
+    void Awake()
     {
-        if (Instance != null && Instance != this)
-        {
-            Destroy(gameObject);
-            return;
-        }
-        Instance = this;
-        // 最大槽位先用常量；provider 确定后再真正初始化
         slotUIs = new InventorySlotUI[InventoryData.SLOT_COUNT];
-
         for (int i = 0; i < slotUIs.Length; i++)
         {
             var go = Instantiate(slotPrefab, slotContainer);
@@ -41,28 +29,26 @@ void Awake()
         }
     }
 
-    public void Open()
+    protected override void OnOpen()
     {
-        // ★ 每次都重新查找（打开背包前可能已切换模式/重连）
-        if (provider == null)
-        {
-            provider = ResolveProvider();
-        }
-        if (provider == null) return;
+        // 先激活面板根（面板根就是自身时，激活会触发 Awake 初始化 slotUIs）
+        if (panel != null)
+            panel.SetActive(true);
 
-        // ★ 注册变更回调，保证只注册一次
+        // 每次打开都重新解析（可能已切换模式/重连）
+        if (provider == null)
+            provider = ResolveProvider();
+        if (provider == null)
+            return;
+
         provider.UnbindChanged(RefreshAll);
         provider.BindChanged(RefreshAll);
 
         for (int i = 0; i < slotUIs.Length; i++)
-            slotUIs[i].Setup(provider, i);
+            slotUIs[i].Setup(this, provider, i);
 
-        panel.SetActive(true);
-        isOpen = true;
-        Cursor.visible = true;
-        Cursor.lockState = CursorLockMode.None;
         if (equipment == null)
-            equipment = FindLocalEquipment();
+            equipment = ResolveEquipment();
         if (equipment != null)
         {
             equipment.OnEquipmentChanged -= RefreshEquipmentSlots;
@@ -76,38 +62,33 @@ void Awake()
         }
     }
 
-    public void Close()
+    protected override void OnClose()
     {
         panel.SetActive(false);
-        isOpen = false;
         selectedIndex = -1;
-        // ★ 关闭时解绑，避免空回调
         if (equipment != null)
         {
             equipment.OnEquipmentChanged -= RefreshEquipmentSlots;
             equipment = null;
         }
         provider?.UnbindChanged(RefreshAll);
-        provider = null;  // 下次 Open 重新解析（适应模式切换）
+        provider = null;
     }
 
     public void OnSlotClicked(int index)
     {
         if (selectedIndex == -1)
         {
-            // 选中
             selectedIndex = index;
             slotUIs[index].SetSelected(true);
         }
         else if (selectedIndex == index)
         {
-            // 取消选中
             slotUIs[index].SetSelected(false);
             selectedIndex = -1;
         }
         else
         {
-            // ★ 通过接口交换，不再直接调 ServerRpc
             provider.SwapSlots(selectedIndex, index);
             slotUIs[selectedIndex].SetSelected(false);
             selectedIndex = -1;
@@ -120,18 +101,12 @@ void Awake()
             slotUIs[i]?.Refresh();
     }
 
-    // ★★★ 核心新增方法：自动选择 Provider ★★★
     private IInventoryProvider ResolveProvider()
     {
-        // ★ 遍历所有 Inventory，找到属于自己（Owner）的
-        foreach (var inv in FindObjectsOfType<Inventory>())
-        {
-            // 本地模式 (IsSpawned=false) 或 联机自己是 Owner
-            if (!inv.IsSpawned || inv.IsOwner)
-                return new NetworkInventoryProvider(inv);
-        }
-        return null;
+        var inv = UIManager.Instance != null ? UIManager.Instance.Player.Inventory : null;
+        return inv != null ? new NetworkInventoryProvider(inv) : null;
     }
+
     void RefreshEquipmentSlots()
     {
         weaponSlot?.Refresh();
@@ -141,11 +116,9 @@ void Awake()
         feetSlot?.Refresh();
     }
 
-    Equipment FindLocalEquipment()
+    private Equipment ResolveEquipment()
     {
-        foreach (var eq in FindObjectsOfType<Equipment>())
-            if (!eq.IsSpawned || eq.IsOwner) return eq;
-        return null;
+        return UIManager.Instance != null ? UIManager.Instance.Player.Equipment : null;
     }
 
     void OnDestroy()
@@ -153,7 +126,5 @@ void Awake()
         if (equipment != null)
             equipment.OnEquipmentChanged -= RefreshEquipmentSlots;
         provider?.UnbindChanged(RefreshAll);
-        if (Instance == this)
-            Instance = null;
     }
 }

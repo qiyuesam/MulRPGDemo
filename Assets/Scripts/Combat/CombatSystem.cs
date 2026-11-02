@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using Unity.Netcode;
 using UnityEngine;
 
@@ -11,7 +10,7 @@ public class CombatSystem : NetworkBehaviour
     private EffectRunner effectRunner;
     private Equipment equipment;
     private Animator animator;
-    private CharacterController cc;
+    private PlayerMotor motor;
 
     public float AttackCooldown { get; private set; }
     public bool IsOnCooldown => AttackCooldown > 0f;
@@ -51,7 +50,10 @@ public class CombatSystem : NetworkBehaviour
     private RuntimeAnimatorController baseAnimatorController;
     private AnimatorOverrideController appliedOverride;
     private WeaponData configuredWeapon;
-    private Coroutine activeLunge;
+    // ClientRpc delivery is reliable, but an explicit sequence guard keeps a
+    // delayed/duplicated presentation message from applying an old lunge
+    // after a newer combo step has already started.
+    private int lastOwnerLungeSequence;
 
     public int ComboIndex => IsSpawned ? networkComboIndex.Value : localComboIndex;
     public int AttackSequence => IsSpawned ? networkAttackSequence.Value : activeSequence;
@@ -65,8 +67,8 @@ public class CombatSystem : NetworkBehaviour
         stats = GetComponent<PlayerStats>();
         effectRunner = GetComponent<EffectRunner>();
         equipment = GetComponent<Equipment>();
+        motor = GetComponent<PlayerMotor>();
         animator = GetComponentInChildren<Animator>();
-        cc = GetComponent<CharacterController>();
         if (animator != null)
             baseAnimatorController = animator.runtimeAnimatorController;
         RefreshWeaponConfig();
@@ -81,6 +83,50 @@ public class CombatSystem : NetworkBehaviour
         RefreshWeaponConfig();
     }
 
+    public override void OnNetworkSpawn()
+    {
+        base.OnNetworkSpawn();
+        lastOwnerLungeSequence = 0;
+        if (IsServer)
+        {
+            networkComboIndex.Value = 0;
+            networkAttackSequence.Value = 0;
+            networkAttackPlaybackSpeed.Value = 1f;
+        }
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        lastOwnerLungeSequence = 0;
+        ResetForLocalMode();
+        base.OnNetworkDespawn();
+    }
+
+    /// <summary>
+    /// Clears network-session combat state before the scene Player is reused
+    /// by the local-mode fallback.
+    /// </summary>
+    public void ResetForLocalMode()
+    {
+        AttackCooldown = 0f;
+        bufferedDirection = Vector3.zero;
+        bufferedRequestTime = -1f;
+        activeStep = null;
+        activeAttackDuration = 0f;
+        activeAttackElapsed = 0f;
+        activeAttackHit = false;
+        localComboIndex = 0;
+        localAttackPlaybackSpeed = 1f;
+        activeSequence = 0;
+        lastOwnerLungeSequence = 0;
+        motor?.ClearScriptedMotion();
+        if (animator != null)
+        {
+            animator.speed = 1f;
+            animator.SetInteger("ComboIndex", 0);
+        }
+    }
+
     public override void OnDestroy()
     {
         if (equipment != null)
@@ -90,12 +136,12 @@ public class CombatSystem : NetworkBehaviour
         base.OnDestroy();
     }
 
-    private void Update()
+    private void FixedUpdate()
     {
         if (AttackCooldown > 0f)
-            AttackCooldown = Mathf.Max(0f, AttackCooldown - Time.deltaTime);
+            AttackCooldown = Mathf.Max(0f, AttackCooldown - Time.fixedDeltaTime);
         if (!IsSpawned || IsServer)
-            UpdateAttackTimeline(Time.deltaTime);
+            UpdateAttackTimeline(Time.fixedDeltaTime);
     }
 
     public void RequestAttack()
@@ -150,6 +196,7 @@ public class CombatSystem : NetworkBehaviour
 
     private void StartAttack(int index, AttackStep step, Vector3 direction)
     {
+        motor?.NotifyAttackStarted();
         activeStep = step;
         float attackSpeed = stats != null ? Mathf.Max(0.1f, stats.AttackSpeed) : 1f;
         activeAttackDuration = Mathf.Max(0.05f, step.duration / attackSpeed);
@@ -173,22 +220,34 @@ public class CombatSystem : NetworkBehaviour
             animator.SetInteger("ComboIndex", index);
         float lungeDistance = step.lungeDistance > 0f ? step.lungeDistance : attackLungeDistance;
         float lungeDuration = (step.lungeDuration > 0f ? step.lungeDuration : attackLungeDuration) / attackSpeed;
-        ApplyAttackLunge(activeAttackDirection, lungeDistance, lungeDuration);
+        QueueAttackLunge(activeAttackDirection, lungeDistance, lungeDuration);
         if (IsSpawned)
-            PlayAttackOwnerClientRpc(activeAttackDirection, lungeDistance, lungeDuration);
+            PlayAttackOwnerClientRpc(
+                activeSequence,
+                activeAttackDirection,
+                lungeDistance,
+                lungeDuration);
         float cooldown = step.cooldown > 0f ? step.cooldown : attackCooldownTime;
         AttackCooldown = Mathf.Max(0f, cooldown / attackSpeed);
     }
 
     [ClientRpc]
-    private void PlayAttackOwnerClientRpc(Vector3 direction, float lungeDistance, float lungeDuration)
+    private void PlayAttackOwnerClientRpc(
+        int sequence,
+        Vector3 direction,
+        float lungeDistance,
+        float lungeDuration)
     {
         // The dedicated server already applied the authoritative lunge. Only
         // the owning non-host client mirrors it for responsive presentation.
         if (!IsOwner || IsServer)
             return;
+        if (sequence <= lastOwnerLungeSequence)
+            return;
+        lastOwnerLungeSequence = sequence;
+        motor?.NotifyAttackStarted();
         FaceDirection(direction);
-        ApplyAttackLunge(direction, lungeDistance, lungeDuration);
+        QueueAttackLunge(direction, lungeDistance, lungeDuration);
     }
 
     private void UpdateAttackTimeline(float deltaTime)
@@ -258,11 +317,7 @@ public class CombatSystem : NetworkBehaviour
 
     private void ResetCombo()
     {
-        if (activeLunge != null)
-        {
-            StopCoroutine(activeLunge);
-            activeLunge = null;
-        }
+        motor?.ClearScriptedMotion();
         activeStep = null;
         activeAttackDuration = 0f;
         activeAttackElapsed = 0f;
@@ -284,7 +339,13 @@ public class CombatSystem : NetworkBehaviour
     public void InterruptAttack()
     {
         if (IsSpawned && !IsServer)
+        {
+            // The client cannot cancel the authoritative combo timeline, but
+            // it must stop any locally predicted lunge immediately (for
+            // example when death arrives while an attack is winding up).
+            motor?.ClearScriptedMotion();
             return;
+        }
         bufferedRequestTime = -1f;
         ResetCombo();
     }
@@ -437,30 +498,13 @@ public class CombatSystem : NetworkBehaviour
             transform.rotation = Quaternion.LookRotation(direction);
     }
 
-    private void ApplyAttackLunge(Vector3 direction, float distance, float duration)
+    private void QueueAttackLunge(Vector3 direction, float distance, float duration)
     {
         distance = distance > 0f ? distance : attackLungeDistance;
         duration = duration > 0f ? duration : attackLungeDuration;
-        if (cc == null || distance <= 0f)
+        if (motor == null || distance <= 0f)
             return;
-        if (activeLunge != null)
-            StopCoroutine(activeLunge);
-        if (duration > 0f)
-            activeLunge = StartCoroutine(LungeRoutine(direction, distance, duration));
-        else
-            cc.Move(direction * distance);
-    }
-
-    private IEnumerator LungeRoutine(Vector3 direction, float distance, float duration)
-    {
-        float elapsed = 0f;
-        while (elapsed < duration)
-        {
-            cc.Move(direction * (distance * (Time.deltaTime / duration)));
-            elapsed += Time.deltaTime;
-            yield return null;
-        }
-        activeLunge = null;
+        motor.QueueAttackLunge(direction, distance, duration);
     }
 
     private static bool IsFinite(Vector3 value)

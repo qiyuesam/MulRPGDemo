@@ -9,7 +9,7 @@ using UnityEngine.UI;
 /// 左侧任务列表、右侧任务详情的 uGUI 任务面板。
 /// J 打开任务日志，与任务提供者交互时显示其委托。
 /// </summary>
-public class QuestUI : MonoBehaviour
+public class QuestUI : UIPanel
 {
     private sealed class QuestListItem
     {
@@ -18,8 +18,6 @@ public class QuestUI : MonoBehaviour
         public QuestDefinition definition;
         public QuestState state;
     }
-
-    public static QuestUI Instance { get; private set; }
 
     [Header("面板")]
     [SerializeField] private GameObject panel;
@@ -46,40 +44,13 @@ public class QuestUI : MonoBehaviour
     private QuestGiver currentGiver;
     private int selectedQuestId = -1;
     private bool selectedFromGiver;
-    private bool visible;
-
-    public bool IsVisible => visible;
 
     private void Awake()
     {
-        if (Instance != null && Instance != this)
-        {
-            Destroy(gameObject);
-            return;
-        }
-
-        Instance = this;
-
         if (closeButton != null)
-            closeButton.onClick.AddListener(Hide);
+            closeButton.onClick.AddListener(Close);
 
         SetPanelActive(false);
-    }
-
-    private void Update()
-    {
-        if (!Input.GetKeyDown(KeyCode.J) || log == null)
-            return;
-
-        if (visible)
-        {
-            Hide();
-            return;
-        }
-
-        currentGiver = null;
-        selectedQuestId = -1;
-        Show();
     }
 
     private void OnDestroy()
@@ -87,19 +58,16 @@ public class QuestUI : MonoBehaviour
         UnsubscribeLog();
 
         if (closeButton != null)
-            closeButton.onClick.RemoveListener(Hide);
+            closeButton.onClick.RemoveListener(Close);
 
         ClearDetailAction();
-
-        if (Instance == this)
-            Instance = null;
     }
 
     public void Bind(QuestLog questLog)
     {
         if (log == questLog)
         {
-            if (visible)
+            if (IsOpen)
                 Refresh();
             return;
         }
@@ -110,13 +78,13 @@ public class QuestUI : MonoBehaviour
 
         if (log == null)
         {
-            Hide();
+            Close();
             return;
         }
 
         log.OnQuestLogChanged += Refresh;
 
-        if (visible)
+        if (IsOpen)
             Refresh();
     }
 
@@ -134,17 +102,15 @@ public class QuestUI : MonoBehaviour
 
         currentGiver = giver;
         selectedQuestId = -1;
-        Show();
+        Open();
     }
 
-    public void Hide()
+    protected override void OnClose()
     {
-        visible = false;
         currentGiver = null;
         selectedQuestId = -1;
         ClearDetailAction();
         SetPanelActive(false);
-        UIManager.Instance?.RefreshCursor();
     }
 
     public void Refresh()
@@ -152,7 +118,7 @@ public class QuestUI : MonoBehaviour
         ClearEntries();
         items.Clear();
 
-        if (!visible || log == null || listContentRoot == null || entryPrefab == null)
+        if (!IsOpen || log == null || listContentRoot == null || entryPrefab == null)
             return;
 
         UpdateHeader();
@@ -415,12 +381,10 @@ public class QuestUI : MonoBehaviour
         return item.fromGiver ? $"[委托] {title}" : title;
     }
 
-    private void Show()
+    protected override void OnOpen()
     {
-        visible = true;
         SetPanelActive(true);
         Refresh();
-        UIManager.Instance?.RefreshCursor();
     }
 
     private void HideDetail()

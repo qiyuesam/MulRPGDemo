@@ -36,7 +36,7 @@ public class QuestLog : NetworkBehaviour
             ResolveDatabases();
             LoadFromDisk();
             BindEvents();
-            QuestUI.Instance?.Bind(this);
+            UIManager.Instance?.BindQuestLog(this);
         }
     }
 
@@ -49,7 +49,7 @@ public class QuestLog : NetworkBehaviour
         if (IsOwner)
         {
             LoadAndApplySave();
-            QuestUI.Instance?.Bind(this);
+            UIManager.Instance?.BindQuestLog(this);
         }
     }
 
@@ -64,7 +64,7 @@ public class QuestLog : NetworkBehaviour
     private void OnDestroy()
     {
         UnbindEvents();
-        QuestUI.Instance?.Unbind(this);
+        UIManager.Instance?.UnbindQuestLog(this);
     }
 
     public QuestState GetState(int questId) => Data.GetState(questId);

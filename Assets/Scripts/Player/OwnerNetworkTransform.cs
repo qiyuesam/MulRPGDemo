@@ -1,17 +1,37 @@
 using Unity.Netcode.Components;
 
+/// <summary>
+/// Compatibility component kept on the prefab for existing scenes. Logical
+/// transform replication is now performed by PlayerMotor's compact state
+/// snapshots, so all legacy NetworkTransform axes are disabled at runtime.
+/// </summary>
 public class OwnerNetworkTransform : NetworkTransform
 {
     protected override bool OnIsServerAuthoritative() => false;
 
-    // 标记：是否应该同步此对象
-public override void OnNetworkSpawn()
+    protected override void Awake()
     {
-        base.OnNetworkSpawn();
-        if (IsOwner)
-            Interpolate = false;  // 仅 Owner 不需要插值平滑，非 Owner 保留插值
+        base.Awake();
+        DisableTransformReplication();
     }
 
-    // 备用方案：直接 hook 网络反序列化
+    public override void OnNetworkSpawn()
+    {
+        base.OnNetworkSpawn();
+        DisableTransformReplication();
+    }
 
+    private void DisableTransformReplication()
+    {
+        SyncPositionX = false;
+        SyncPositionY = false;
+        SyncPositionZ = false;
+        SyncRotAngleX = false;
+        SyncRotAngleY = false;
+        SyncRotAngleZ = false;
+        SyncScaleX = false;
+        SyncScaleY = false;
+        SyncScaleZ = false;
+        Interpolate = false;
+    }
 }

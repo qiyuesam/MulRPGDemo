@@ -83,7 +83,9 @@ public sealed class NetworkSessionController : IDisposable
     {
         NetworkConfig config = networkManager.NetworkConfig;
         config.ProtocolVersion = 0;
-        config.TickRate = 120;
+        // Keep the network simulation cadence aligned with the 50 Hz fixed
+        // movement step. Transport may still batch packets independently.
+        config.TickRate = 50;
         config.ConnectionApproval = true;
         config.ForceSamePrefabs = true;
         config.EnableSceneManagement = true;

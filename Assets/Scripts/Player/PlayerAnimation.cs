@@ -24,6 +24,23 @@ public class PlayerAnimation : NetworkBehaviour
         combat = GetComponent<CombatSystem>();
     }
 
+    public override void OnNetworkSpawn()
+    {
+        enabled = true;
+        lastAttackSequence = -1;
+        base.OnNetworkSpawn();
+        if (IsServer)
+            networkSpeed.Value = 0f;
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        lastAttackSequence = -1;
+        if (animator != null)
+            animator.speed = 1f;
+        base.OnNetworkDespawn();
+    }
+
     void Update()
     {
         if (motor == null || animator == null) return;
@@ -40,7 +57,13 @@ public class PlayerAnimation : NetworkBehaviour
             {
                 lastAttackSequence = sequence;
                 int stateHash = Animator.StringToHash($"Attack0{comboIndex}");
-                animator.CrossFade(stateHash, 0.08f, 0, 0f);
+                // Weapon controllers are optional.  If the active controller
+                // does not contain the conventional Attack01..05 states, keep
+                // locomotion running instead of issuing a noisy invalid-state
+                // transition; an animation event can still drive hit timing
+                // when a weapon override supplies those states.
+                if (animator.HasState(0, stateHash))
+                    animator.CrossFade(stateHash, 0.08f, 0, 0f);
             }
         }
 
@@ -56,4 +79,5 @@ public class PlayerAnimation : NetworkBehaviour
 
         animator.SetFloat("Vertical Speed", networkSpeed.Value);
     }
+
 }

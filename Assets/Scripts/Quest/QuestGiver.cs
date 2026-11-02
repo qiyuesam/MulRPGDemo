@@ -24,8 +24,8 @@ public class QuestGiver : MonoBehaviour, IInteractable
         if (log == null) return;
 
         log.RequestRecordInteraction(giverId);
-        QuestUI.Instance?.ShowGiver(this, log);
-        if (QuestUI.Instance == null && !string.IsNullOrEmpty(interactionMessage))
+        UIManager.Instance?.ShowGiver(this, log);
+        if (UIManager.Instance == null && !string.IsNullOrEmpty(interactionMessage))
             Debug.Log($"[QuestGiver] {interactionMessage}: {giverId}", this);
     }
 

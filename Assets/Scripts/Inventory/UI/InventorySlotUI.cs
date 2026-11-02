@@ -11,12 +11,12 @@ public class InventorySlotUI : MonoBehaviour
     [SerializeField] private Image selectBorder;
 
     private int slotIndex;
-    // ★ 改1：Inventory → IInventoryProvider
     private IInventoryProvider provider;
+    private InventoryUI owner;
 
-    // ★ 改2：参数类型 Inventory → IInventoryProvider
-    public void Setup(IInventoryProvider inv, int index)
+    public void Setup(InventoryUI owner, IInventoryProvider inv, int index)
     {
+        this.owner = owner;
         provider = inv;
         slotIndex = index;
         Refresh();
@@ -48,6 +48,6 @@ public class InventorySlotUI : MonoBehaviour
 
     public void OnClick()
     {
-        InventoryUI.Instance.OnSlotClicked(slotIndex);
+        owner?.OnSlotClicked(slotIndex);
     }
 }

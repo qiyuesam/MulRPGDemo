@@ -1,15 +1,15 @@
 using UnityEngine;
 using UnityEngine.Pool;
+
 public class ChipPool : MonoBehaviour
 {
     [SerializeField] HealthBarChip chipPrefab;
     [SerializeField] private RectTransform fillRect;
-    
+
     ObjectPool<HealthBarChip> chipPool;
-    
+
     private PlayerStats stats;
     private int lastHp;
-
 
     void Awake()
     {
@@ -26,15 +26,21 @@ public class ChipPool : MonoBehaviour
 
     HealthBarChip CreateHealthBarChip()
     {
-        HealthBarChip chip = Instantiate(chipPrefab,transform);
-        chip.Pool=chipPool;
+        HealthBarChip chip = Instantiate(chipPrefab, transform);
+        chip.Pool = chipPool;
         return chip;
     }
 
     void OnEnable()
     {
-        UIManager.LocalPlayerStatsChanged += Bind;
-        Bind(UIManager.Instance != null ? UIManager.Instance.LocalPlayerStats : FindLocalStats());
+        UIManager.LocalPlayerChanged += OnPlayerChanged;
+        if (UIManager.Instance != null)
+            OnPlayerChanged(UIManager.Instance.Player);
+    }
+
+    private void OnPlayerChanged(PlayerContext ctx)
+    {
+        Bind(ctx.Valid ? ctx.Stats : null);
     }
 
     void Bind(PlayerStats s)
@@ -81,16 +87,8 @@ public class ChipPool : MonoBehaviour
 
     void OnDisable()
     {
-        UIManager.LocalPlayerStatsChanged -= Bind;
+        UIManager.LocalPlayerChanged -= OnPlayerChanged;
         if (stats != null) stats.OnStatsChanged -= OnHpChanged;
         stats = null;
-    }
-
-    PlayerStats FindLocalStats()
-    {
-        foreach (var s in FindObjectsOfType<PlayerStats>())
-            if (!s.IsSpawned || s.IsOwner)
-                return s;
-        return null;
     }
 }

@@ -35,25 +35,40 @@ public class GameManager : MonoBehaviour
     public void OnStartSinglePlayerButton()
     {
         if (EnsureInitialized())
+        {
             gameFlow.StartSinglePlayer();
+            if (gameFlow.CurrentMode != GameMode.None)
+                UIManager.Instance?.CloseNetworkPanel();
+        }
     }
 
     public void OnStartHostButton()
     {
         if (EnsureInitialized())
+        {
             gameFlow.StartHost();
+            if (gameFlow.CurrentMode != GameMode.None)
+                UIManager.Instance?.CloseNetworkPanel();
+        }
     }
 
     public void OnStartClientButton()
     {
         if (EnsureInitialized())
+        {
             gameFlow.StartClient(clientAddress);
+            if (gameFlow.CurrentMode != GameMode.None)
+                UIManager.Instance?.CloseNetworkPanel();
+        }
     }
 
     public void OnShutDownButton()
     {
         if (EnsureInitialized())
+        {
             gameFlow.ShutdownNetwork();
+            UIManager.Instance?.OpenNetworkPanel();
+        }
     }
 
     public void SetClientAddress(string address)
@@ -92,6 +107,7 @@ public class GameManager : MonoBehaviour
             maxPlayers,
             connectionKey);
 
+        NetworkPredictionChannel.EnsureInstance();
         playerSpawner = new PlayerSpawner(playerPrefab, networkSession);
         gameFlow = new GameFlowController(networkSession, playerSpawner);
         return true;

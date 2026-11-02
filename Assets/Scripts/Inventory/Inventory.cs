@@ -81,10 +81,21 @@ public override void OnNetworkSpawn()
     private void OnServerDataChanged()
     {
         OnInventoryChanged?.Invoke();
-        SyncToClientsClientRpc(Serialize());
+        SyncToOwnerClientRpc(Serialize(), CreateOwnerRpcParams());
 
         if (IsOwner)
             AutoSave();
+    }
+
+    private ClientRpcParams CreateOwnerRpcParams()
+    {
+        return new ClientRpcParams
+        {
+            Send = new ClientRpcSendParams
+            {
+                TargetClientIds = new[] { OwnerClientId },
+            },
+        };
     }
 
     private void OnClientDataChanged()
@@ -315,7 +326,7 @@ public override void OnNetworkSpawn()
     // ================================================================
 
     [ClientRpc]
-    private void SyncToClientsClientRpc(string json)
+    private void SyncToOwnerClientRpc(string json, ClientRpcParams clientRpcParams = default)
     {
         if (data.TryFromJson(json, itemDatabase, out string error,
                              requireExactSlotCount: true, notify: false))

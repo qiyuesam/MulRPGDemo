@@ -1,5 +1,3 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -7,20 +5,27 @@ public class HealthBarUI : MonoBehaviour
 {
     [SerializeField] private Image hpFill;
     [SerializeField] private Image mpFill;
-    
+
     private PlayerStats stats;
 
     void OnEnable()
     {
-        UIManager.LocalPlayerStatsChanged += Bind;
-        Bind(UIManager.Instance != null ? UIManager.Instance.LocalPlayerStats : FindPlayerStats());
+        UIManager.LocalPlayerChanged += OnPlayerChanged;
+        if (UIManager.Instance != null)
+            OnPlayerChanged(UIManager.Instance.Player);
     }
 
     void OnDisable()
     {
-        UIManager.LocalPlayerStatsChanged -= Bind;
+        UIManager.LocalPlayerChanged -= OnPlayerChanged;
         Bind(null);
     }
+
+    private void OnPlayerChanged(PlayerContext ctx)
+    {
+        Bind(ctx.Valid ? ctx.Stats : null);
+    }
+
     public void Bind(PlayerStats s)
     {
         if (stats != null) stats.OnStatsChanged -= Refresh;
@@ -36,24 +41,8 @@ public class HealthBarUI : MonoBehaviour
     {
         if (stats == null) return;
         if (hpFill != null)
-        {
-            hpFill.fillAmount=stats.MaxHp>0?(float)stats.CurrentHp/stats.MaxHp:0f;
-        }
-
+            hpFill.fillAmount = stats.MaxHp > 0 ? (float)stats.CurrentHp / stats.MaxHp : 0f;
         if (mpFill != null)
-        {
-            mpFill.fillAmount=stats.MaxMp>0?(float)stats.CurrentMp/stats.MaxMp:0f;
-        }
-           
-    }
-
-    PlayerStats FindPlayerStats()
-    {
-        foreach (var s in FindObjectsOfType<PlayerStats>())
-        {
-            if(!s.IsSpawned||s.IsOwner)
-                return s;
-        }
-        return null;
+            mpFill.fillAmount = stats.MaxMp > 0 ? (float)stats.CurrentMp / stats.MaxMp : 0f;
     }
 }
