@@ -107,6 +107,7 @@ public class GameManager : MonoBehaviour
             maxPlayers,
             connectionKey);
 
+        NetworkTickClock.EnsureInstance();
         NetworkPredictionChannel.EnsureInstance();
         playerSpawner = new PlayerSpawner(playerPrefab, networkSession);
         gameFlow = new GameFlowController(networkSession, playerSpawner);

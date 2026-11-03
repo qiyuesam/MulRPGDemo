@@ -33,10 +33,6 @@ public class PlayerMotor : NetworkBehaviour
     [SerializeField, Range(1, 4)] private int inputSendIntervalTicks = 2;
     [Tooltip("How many recent commands are repeated in each input packet.")]
     [SerializeField, Range(1, 8)] private int redundantCommandCount = 4;
-    [Tooltip("Preferred depth of the server-side input queue, in commands.")]
-    [SerializeField, Range(0, 12)] private int serverQueueTargetDepth = 2;
-    [Tooltip("Hard cap on how many stale commands can be discarded in one tick.")]
-    [SerializeField, Range(1, 6)] private int serverQueueMaxEatPerTick = 3;
     [Tooltip("Absolute cap of the server-side input queue. Older commands are dropped first.")]
     [SerializeField, Range(4, 32)] private int serverQueueMaxDepth = 16;
     [Tooltip("How many authoritative states the server keeps for replay/lag compensation.")]
@@ -121,11 +117,10 @@ public class PlayerMotor : NetworkBehaviour
     private bool remoteTargetInitialized;
 
     private uint localTick;
+    private uint nextInputSendTick;
     private uint lastAckTick;
     private uint lastReceivedInputTick;
     private uint lastProcessedInputTick;
-    private bool simulationTickOffsetInitialized;
-    private long serverToLocalSimulationTickOffset;
     private HybridInputCommand lastServerCommand;
     private bool hasServerInput;
     private byte pendingActionFlags;
@@ -200,8 +195,6 @@ public class PlayerMotor : NetworkBehaviour
         localInterpolationTicks = Mathf.Clamp(localInterpolationTicks, 0f, 2f);
         inputSendIntervalTicks = Mathf.Clamp(inputSendIntervalTicks, 1, 4);
         redundantCommandCount = Mathf.Clamp(redundantCommandCount, 1, 8);
-        serverQueueTargetDepth = Mathf.Clamp(serverQueueTargetDepth, 0, 12);
-        serverQueueMaxEatPerTick = Mathf.Clamp(serverQueueMaxEatPerTick, 1, 6);
         serverQueueMaxDepth = Mathf.Clamp(serverQueueMaxDepth, 4, 32);
         serverStateHistorySize = Mathf.Clamp(serverStateHistorySize, 16, 512);
     }
@@ -211,12 +204,11 @@ public class PlayerMotor : NetworkBehaviour
         base.OnNetworkSpawn();
 
         localState = CreateStateFromTransform();
-        localTick = 0;
+        localTick = NetworkTickClock.Instance != null ? NetworkTickClock.Instance.CurrentTick : 0u;
+        nextInputSendTick = 0u;
         lastAckTick = 0;
         lastReceivedInputTick = 0;
         lastProcessedInputTick = 0;
-        simulationTickOffsetInitialized = false;
-        serverToLocalSimulationTickOffset = 0L;
         hasServerInput = false;
         lastServerCommand = default;
         serverStateInitialized = false;
@@ -274,8 +266,7 @@ public class PlayerMotor : NetworkBehaviour
         lastAckSimulationTick = 0u;
         reconcileCount = 0;
         localTick = 0;
-        simulationTickOffsetInitialized = false;
-        serverToLocalSimulationTickOffset = 0L;
+        nextInputSendTick = 0u;
         pendingActionFlags = HybridInputAction.None;
         predictedMovementLockTicks = 0;
         InputDirection = Vector3.zero;
@@ -310,13 +301,12 @@ public class PlayerMotor : NetworkBehaviour
             Array.Clear(serverStateHistory, 0, serverStateHistory.Length);
         serverInputQueue?.Clear();
         localTick = 0;
+        nextInputSendTick = 0u;
         lastAckTick = 0;
         lastAckSimulationTick = 0u;
         reconcileCount = 0;
         lastReceivedInputTick = 0;
         lastProcessedInputTick = 0;
-        simulationTickOffsetInitialized = false;
-        serverToLocalSimulationTickOffset = 0L;
         lastServerCommand = default;
         hasServerInput = false;
         serverStateInitialized = false;
@@ -337,6 +327,11 @@ public class PlayerMotor : NetworkBehaviour
 
     private void FixedUpdate()
     {
+        // Network simulation is driven by the synchronized ServerTime tick.
+        // Skip extra FixedUpdates that do not advance the global tick.
+        if (NetworkTickClock.Instance != null && !NetworkTickClock.Instance.AdvancedThisFixedUpdate)
+            return;
+
         // LateUpdate renders an interpolated position. Every tick that actually
         // simulates must restart from the logical state, otherwise
         // CharacterController.Move would sweep from the visual pose and drift.
@@ -547,9 +542,11 @@ public class PlayerMotor : NetworkBehaviour
 
     private void SimulateLocalTick()
     {
-        localTick++;
+        localTick = NetworkTickClock.Instance != null
+            ? NetworkTickClock.Instance.CurrentTick
+            : localTick + 1u;
         HybridInputCommand command = BuildInputCommand(localTick);
-        localState = SimulateState(localState, command);
+        localState = SimulateState(localState, command, localTick);
         command.PredictedPosition = localState.Position;
         command.PredictedYaw = localState.Yaw;
         StorePrediction(command, localState);
@@ -559,9 +556,11 @@ public class PlayerMotor : NetworkBehaviour
 
     private void SimulateOwnerTick(bool hostAuthoritative)
     {
-        localTick++;
+        localTick = NetworkTickClock.Instance != null
+            ? NetworkTickClock.Instance.CurrentTick
+            : localTick + 1u;
         HybridInputCommand command = BuildInputCommand(localTick);
-        localState = SimulateState(localState, command);
+        localState = SimulateState(localState, command, localTick);
         command.PredictedPosition = localState.Position;
         command.PredictedYaw = localState.Yaw;
         StorePrediction(command, localState);
@@ -676,7 +675,10 @@ public class PlayerMotor : NetworkBehaviour
         // Never apply a client-authored scripted displacement.  The server
         // profile is enqueued by the authoritative CombatSystem callback.
         serverSimulationCommand.ScriptedMotionDelta = ConsumeScriptedMotionDelta();
-        serverState = SimulateState(serverState, serverSimulationCommand);
+        uint serverTick = NetworkTickClock.Instance != null
+            ? NetworkTickClock.Instance.CurrentTick
+            : serverState.SimulationTick + 1u;
+        serverState = SimulateState(serverState, serverSimulationCommand, serverTick);
         if (isNewInput)
         {
             serverState.InputTick = command.Tick;
@@ -724,18 +726,17 @@ public class PlayerMotor : NetworkBehaviour
                 || serverInputQueue.ContainsKey(command.Tick))
                 continue;
 
-            // The first command after a connection may already be several fixed
-            // ticks ahead while the handshake completes. Establish the stream
-            // from that command instead of dropping every initial packet as
-            // "over lead".
-            uint lead = lastProcessedInputTick == 0u
-                ? 0u
-                : (command.Tick > lastProcessedInputTick
-                    ? command.Tick - lastProcessedInputTick
-                    : 0u);
-            if (lead > (uint)Mathf.Max(8, maxCommandLead))
+            // Commands now live in the same global tick domain as the server
+            // simulation. Commands for past ticks are stale; commands too far
+            // in the future are malformed or a broken clock.
+            uint serverTick = NetworkTickClock.Instance != null
+                ? NetworkTickClock.Instance.CurrentTick
+                : 0u;
+            if (command.Tick < serverTick)
+                continue;
+            if (command.Tick > serverTick + (uint)Mathf.Max(8, maxCommandLead))
             {
-                Debug.LogWarning($"[HybridMotion] Dropping over-lead input tick {command.Tick} from {OwnerClientId}");
+                Debug.LogWarning($"[HybridMotion] Dropping over-lead input tick {command.Tick} from {OwnerClientId}, server tick {serverTick}");
                 continue;
             }
 
@@ -756,48 +757,35 @@ public class PlayerMotor : NetworkBehaviour
     }
 
     /// <summary>
-    /// Takes the next command for this authoritative tick. When the queue is
-    /// severely backed up, old commands are discarded first so latency cannot
-    /// grow without bound. Normal traffic keeps one command per tick.
+    /// Takes the command for the current global server tick. Future commands
+    /// stay queued; past commands are stale. If no command exists for the
+    /// current tick the motor holds the last accepted one.
     /// </summary>
     private bool TryDequeueServerCommand(out HybridInputCommand command)
     {
         command = default;
+        uint serverTick = NetworkTickClock.Instance != null
+            ? NetworkTickClock.Instance.CurrentTick
+            : 0u;
 
         while (serverInputQueue.Count > 0)
         {
             KeyValuePair<uint, HybridInputCommand> oldest = GetFirstQueuedCommand();
-            if (oldest.Key > lastProcessedInputTick)
-                break;
-
-            serverInputQueue.Remove(oldest.Key);
-        }
-
-        // Only trim once the queue is clearly above the desired depth. The
-        // client tick and the server simulation tick are separate domains, so
-        // aggressive draining would compress time instead of reducing latency.
-        int upperBound = Mathf.Max(serverQueueTargetDepth + 6, 6);
-        int eaten = 0;
-        while (serverInputQueue.Count > upperBound && eaten < serverQueueMaxEatPerTick)
-        {
-            KeyValuePair<uint, HybridInputCommand> oldest = GetFirstQueuedCommand();
-            if (oldest.Key <= lastProcessedInputTick)
+            if (oldest.Key < serverTick)
             {
                 serverInputQueue.Remove(oldest.Key);
                 continue;
             }
 
+            if (oldest.Key > serverTick)
+                return false;
+
             serverInputQueue.Remove(oldest.Key);
-            eaten++;
+            command = oldest.Value;
+            return true;
         }
 
-        if (serverInputQueue.Count == 0)
-            return false;
-
-        KeyValuePair<uint, HybridInputCommand> next = GetFirstQueuedCommand();
-        serverInputQueue.Remove(next.Key);
-        command = next.Value;
-        return true;
+        return false;
     }
 
     /// <summary>
@@ -807,8 +795,9 @@ public class PlayerMotor : NetworkBehaviour
     private void QueueCommandForSend()
     {
         int interval = Mathf.Max(1, inputSendIntervalTicks);
-        if (localTick % (uint)interval != 0u)
+        if (localTick < nextInputSendTick)
             return;
+        nextInputSendTick = localTick + (uint)interval;
 
         int count = 0;
         uint firstTick = localTick >= (uint)redundantCommandCount
@@ -917,7 +906,7 @@ public class PlayerMotor : NetworkBehaviour
         if (!IsSpawned || IsServer)
             return;
 
-        NetworkPredictionChannel.Instance?.ApplyStatePacket(packet);
+        NetworkPredictionChannel.ApplyStatePacket(packet);
     }
 
     private void HandleAuthoritativeState(HybridMotionState authoritativeState)
@@ -929,31 +918,11 @@ public class PlayerMotor : NetworkBehaviour
         if (authoritativeState.InputTick > lastAckTick)
             lastAckTick = authoritativeState.InputTick;
 
-        // The server may have advanced several simulation ticks while holding
-        // the last accepted input during packet delay.  Learn the fixed-tick
-        // offset from the first command that both sides can identify, then use
-        // SimulationTick (rather than InputTick) to choose the replay anchor.
-        // Re-learn the pairing on every authoritative packet. A one-shot
-        // offset drifts after hitches, server catch-up, or a reconnect.
-        if (authoritativeState.InputTick != 0u
-            && TryGetPrediction(authoritativeState.InputTick, out PredictionFrame offsetFrame))
-        {
-            serverToLocalSimulationTickOffset = (long)authoritativeState.SimulationTick
-                - offsetFrame.State.SimulationTick;
-            simulationTickOffsetInitialized = true;
-        }
-
-        bool hasAnchor = false;
+        // Both sides now share the same global tick domain, so the server's
+        // SimulationTick directly identifies the local prediction frame.
         PredictionFrame frame = default;
-        if (simulationTickOffsetInitialized)
-        {
-            long localSimulationTick = (long)authoritativeState.SimulationTick
-                - serverToLocalSimulationTickOffset;
-            if (localSimulationTick >= 0L && localSimulationTick <= uint.MaxValue)
-                hasAnchor = TryGetPredictionBySimulationTick((uint)localSimulationTick, out frame);
-        }
-
-        if (!hasAnchor)
+        bool hasAnchor = TryGetPredictionBySimulationTick(authoritativeState.SimulationTick, out frame);
+        if (!hasAnchor && authoritativeState.InputTick != 0u)
             hasAnchor = TryGetPrediction(authoritativeState.InputTick, out frame);
 
         if (!hasAnchor)
@@ -1017,7 +986,7 @@ public class PlayerMotor : NetworkBehaviour
             if (!TryGetPrediction(replayTick, out PredictionFrame frame))
                 break;
 
-            replayState = SimulateState(replayState, frame.Command);
+            replayState = SimulateState(replayState, frame.Command, replayTick);
             frame.Command.PredictedPosition = replayState.Position;
             frame.Command.PredictedYaw = replayState.Yaw;
             frame.State = replayState;
@@ -1123,7 +1092,7 @@ public class PlayerMotor : NetworkBehaviour
             (forward * local.z + right * local.x) * magnitude);
     }
 
-    private HybridMotionState SimulateState(HybridMotionState state, HybridInputCommand command)
+    private HybridMotionState SimulateState(HybridMotionState state, HybridInputCommand command, uint stateTick)
     {
         float deltaTime = Mathf.Max(0.0001f, Time.fixedDeltaTime);
         Vector3 currentPosition = transform.position;
@@ -1175,7 +1144,7 @@ public class PlayerMotor : NetworkBehaviour
         if (groundedAfter && velocity.y < 0f)
             velocity.y = groundedGravity;
 
-        state.SimulationTick++;
+        state.SimulationTick = stateTick;
         state.Position = transform.position;
         state.Velocity = velocity;
         state.Yaw = transform.eulerAngles.y;
@@ -1188,7 +1157,9 @@ public class PlayerMotor : NetworkBehaviour
     {
         return new HybridMotionState
         {
-            SimulationTick = 0,
+            SimulationTick = NetworkTickClock.Instance != null
+                ? NetworkTickClock.Instance.CurrentTick
+                : 0u,
             InputTick = 0,
             Position = transform.position,
             Velocity = Vector3.zero,

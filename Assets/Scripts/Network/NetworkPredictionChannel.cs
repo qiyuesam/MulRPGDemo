@@ -29,7 +29,7 @@ public sealed class NetworkPredictionChannel : MonoBehaviour
     }
 
     private NetworkManager networkManager;
-    private uint serverSendTick;
+    private uint nextStateSendTick;
     private readonly List<RemoteCandidate> remoteCandidates = new List<RemoteCandidate>();
 
     public static NetworkPredictionChannel EnsureInstance()
@@ -72,10 +72,19 @@ public sealed class NetworkPredictionChannel : MonoBehaviour
         if (networkManager == null || !networkManager.IsServer || !networkManager.IsListening)
             return;
 
-        serverSendTick++;
-        if (serverSendTick % (uint)Mathf.Max(1, stateSendIntervalTicks) != 0u)
+        NetworkTickClock clock = NetworkTickClock.Instance;
+        if (clock == null || !clock.AdvancedThisFixedUpdate)
             return;
 
+        // A tick accumulator avoids skipping every send if the network tick
+        // jumps by an even number and the modulo phase is unlucky. It also
+        // resets automatically when the global clock restarts at 0.
+        if (clock.CurrentTick < nextStateSendTick)
+            nextStateSendTick = clock.CurrentTick;
+        if (clock.CurrentTick < nextStateSendTick)
+            return;
+
+        nextStateSendTick = clock.CurrentTick + (uint)Mathf.Max(1, stateSendIntervalTicks);
         SendStatePackets();
     }
 
@@ -99,7 +108,9 @@ public sealed class NetworkPredictionChannel : MonoBehaviour
             CompactPlayerSnapshot[] remotes = BuildRemoteSnapshots(owner, ownerState.Position);
             PredictionStatePacket packet = new PredictionStatePacket
             {
-                ServerTick = serverSendTick,
+                ServerTick = NetworkTickClock.Instance != null
+                    ? NetworkTickClock.Instance.CurrentTick
+                    : 0u,
                 Owner = CompactPlayerSnapshot.FromState(ownerState, owner.PredictionObjectId),
                 Remote = remotes,
             };
@@ -147,9 +158,10 @@ public sealed class NetworkPredictionChannel : MonoBehaviour
     }
 
     /// <summary>
-    /// Called by the receiving client-side PlayerMotor RPC handler.
+    /// Called by the receiving client-side PlayerMotor RPC handler. Static so
+    /// routing still works if the channel component was not created yet.
     /// </summary>
-    public void ApplyStatePacket(PredictionStatePacket packet)
+    public static void ApplyStatePacket(PredictionStatePacket packet)
     {
         if (packet.Owner.ObjectId == 0UL)
             return;
